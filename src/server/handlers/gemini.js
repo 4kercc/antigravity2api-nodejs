@@ -169,6 +169,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
             createRetryOptions('gemini.stream.image ')
           );
           const chunk = createGeminiResponse(content, null, reasoningSignature, null, 'STOP', usage, { passSignatureToClient: config.passSignatureToClient });
+          if (usage) res.locals.tokenUsage = usage;
           writeStreamData(res, chunk);
           clearInterval(heartbeatTimer);
           endStream(res, false);
@@ -209,6 +210,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
         // 发送结束块和 usage
         const finishReason = hasToolCall ? "STOP" : "STOP"; // Gemini 工具调用也是 STOP
         const finalChunk = createGeminiResponse(null, null, null, null, finishReason, usageData, { passSignatureToClient: config.passSignatureToClient });
+        if (usageData) res.locals.tokenUsage = usageData;
         writeStreamData(res, finalChunk);
 
         clearInterval(heartbeatTimer);
@@ -261,6 +263,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
 
         const finishReason = "STOP";
         const response = createGeminiResponse(content, reasoningContent || null, reasoningSignature, toolCalls, finishReason, usageData, { passSignatureToClient: config.passSignatureToClient });
+        if (usageData) res.locals.tokenUsage = usageData;
         res.json(response);
       } catch (error) {
         logger.error('Gemini 假非流请求失败:', error.message);
@@ -286,6 +289,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
 
       const finishReason = toolCalls.length > 0 ? "STOP" : "STOP";
       const response = createGeminiResponse(content, reasoningContent, reasoningSignature, toolCalls, finishReason, usage, { passSignatureToClient: config.passSignatureToClient });
+      if (usage) res.locals.tokenUsage = usage;
       res.json(response);
     }
   } catch (error) {

@@ -99,13 +99,7 @@ const QUOTA_GROUPS = [
         key: 'claude',
         label: 'Claude',
         iconSrc: '/assets/icons/claude.svg',
-        match: (modelId) => modelId.toLowerCase().includes('claude')
-    },
-    {
-        key: 'banana',
-        label: 'banana',
-        iconSrc: '/assets/icons/banana.svg',
-        match: (modelId) => modelId.toLowerCase().includes('gemini-3.1-flash-image')
+        match: (modelId) => modelId.toLowerCase().includes('claude') || modelId.toLowerCase().includes('gpt')
     },
     {
         key: 'gemini',
@@ -121,7 +115,7 @@ const QUOTA_GROUPS = [
     }
 ];
 
-const QUOTA_SUMMARY_KEYS = ['claude', 'gemini', 'banana'];
+const QUOTA_SUMMARY_KEYS = ['claude', 'gemini'];
 
 function getGroupIconHtml(group) {
     const src = group?.iconSrc || '';
@@ -167,18 +161,96 @@ function groupModels(models) {
 const GROUP_COST_PERCENT = {
     claude: 0.6667,
     gemini: 0.6667,
-    banana: 5.0,    // 图片生成模型消耗更高，约 20 次/满额
     other: 0.6667
 };
 
+function formatTimeCountdown(resetTimeRaw, resetTimeText) {
+    if (!resetTimeRaw && !resetTimeText) return '--';
+
+    let targetMs = null;
+    let localFormatted = '';
+
+    if (resetTimeRaw) {
+        const ms = Date.parse(resetTimeRaw);
+        if (Number.isFinite(ms)) {
+            targetMs = ms;
+            const date = new Date(ms);
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            const h = String(date.getHours()).padStart(2, '0');
+            const min = String(date.getMinutes()).padStart(2, '0');
+            localFormatted = `${m}/${d} ${h}:${min}`;
+        }
+    }
+
+    if (!targetMs && resetTimeText) {
+        const match = resetTimeText.match(/(\d{2})[-/](\d{2})\s+(\d{2}):(\d{2})/);
+        if (match) {
+            const [, mStr, dStr, hStr, minStr] = match;
+            const now = new Date();
+            let year = now.getFullYear();
+            const month = parseInt(mStr, 10) - 1;
+            const day = parseInt(dStr, 10);
+            const hour = parseInt(hStr, 10);
+            const minute = parseInt(minStr, 10);
+
+            let targetDate = new Date(year, month, day, hour, minute);
+            if (targetDate.getTime() - now.getTime() < -86400000) {
+                targetDate = new Date(year + 1, month, day, hour, minute);
+            }
+            targetMs = targetDate.getTime();
+            localFormatted = `${mStr}/${dStr} ${hStr}:${minStr}`;
+        }
+    }
+
+    if (!targetMs) return resetTimeText || '--';
+
+    const diffMs = targetMs - Date.now();
+    if (diffMs <= 0) {
+        return `已重置 (${localFormatted})`;
+    }
+
+    const totalSec = Math.floor(diffMs / 1000);
+    const days = Math.floor(totalSec / 86400);
+    const hours = Math.floor((totalSec % 86400) / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+
+    let cd = '';
+    if (days > 0) {
+        cd = `${days}d ${hours}h`;
+    } else if (hours > 0) {
+        cd = `${hours}h ${mins}m`;
+    } else {
+        cd = `${mins}m`;
+    }
+
+    return `${cd} (${localFormatted})`;
+}
+
 function summarizeGroup(items, requestCount = 0, groupKey = null) {
     if (!items || items.length === 0) {
-        return { percentage: 0, percentageText: '--', resetTime: '--', estimatedRequests: 0 };
+        return {
+            percentage: 0,
+            percentageText: '--',
+            resetTime: '--',
+            resetTimeRaw: null,
+            estimatedRequests: 0,
+            weeklyPercentage: null,
+            weeklyPercentageText: null,
+            weeklyResetTime: null,
+            weeklyResetTimeRaw: null
+        };
     }
 
     let minRemaining = 1;
     let earliestResetMs = null;
     let earliestResetText = null;
+    let earliestResetRaw = null;
+
+    let minWeeklyRemaining = null;
+    let earliestWeeklyResetMs = null;
+    let earliestWeeklyResetText = null;
+    let earliestWeeklyResetRaw = null;
 
     items.forEach(({ quota }) => {
         const remaining = clamp01(quota?.remaining);
@@ -192,9 +264,31 @@ function summarizeGroup(items, requestCount = 0, groupKey = null) {
             if (Number.isFinite(ms) && (earliestResetMs === null || ms < earliestResetMs)) {
                 earliestResetMs = ms;
                 earliestResetText = resetText || null;
+                earliestResetRaw = resetRaw;
             }
         } else if (!earliestResetText && resetText) {
             earliestResetText = resetText;
+        }
+
+        if (quota?.weeklyRemaining !== null && quota?.weeklyRemaining !== undefined) {
+            const wRemaining = clamp01(quota.weeklyRemaining);
+            if (minWeeklyRemaining === null || wRemaining < minWeeklyRemaining) {
+                minWeeklyRemaining = wRemaining;
+            }
+
+            const wResetRaw = quota.weeklyResetTimeRaw;
+            const wResetText = quota.weeklyResetTime;
+
+            if (wResetRaw) {
+                const ms = Date.parse(wResetRaw);
+                if (Number.isFinite(ms) && (earliestWeeklyResetMs === null || ms < earliestWeeklyResetMs)) {
+                    earliestWeeklyResetMs = ms;
+                    earliestWeeklyResetText = wResetText || null;
+                    earliestWeeklyResetRaw = wResetRaw;
+                }
+            } else if (!earliestWeeklyResetText && wResetText) {
+                earliestWeeklyResetText = wResetText;
+            }
         }
     });
 
@@ -209,7 +303,12 @@ function summarizeGroup(items, requestCount = 0, groupKey = null) {
         percentage: percentageValue,
         percentageText: formatPercentage(minRemaining),
         resetTime: earliestResetText || '--',
-        estimatedRequests
+        resetTimeRaw: earliestResetRaw || null,
+        estimatedRequests,
+        weeklyPercentage: minWeeklyRemaining !== null ? toPercentage(minWeeklyRemaining) : null,
+        weeklyPercentageText: minWeeklyRemaining !== null ? formatPercentage(minWeeklyRemaining) : null,
+        weeklyResetTime: earliestWeeklyResetText || null,
+        weeklyResetTimeRaw: earliestWeeklyResetRaw || null
     };
 }
 
@@ -255,21 +354,6 @@ function updateTokenCardMeta(tokenId, token) {
     } else if (subEl) {
         subEl.remove();
     }
-
-    let creditsEl = headerLeft.querySelector('.status-credits');
-    if (!creditsEl) {
-        creditsEl = document.createElement('span');
-        if (refreshBtn) {
-            headerLeft.insertBefore(creditsEl, refreshBtn);
-        } else {
-            headerLeft.appendChild(creditsEl);
-        }
-    }
-
-    const credits = token.credits;
-    creditsEl.className = `status-credits ${credits !== null && credits !== undefined ? (Number(credits) <= 0 ? 'credits-empty' : '') : 'no-credits'}`;
-    creditsEl.title = credits !== null && credits !== undefined ? `剩余积分: ${formatCredits(credits)}` : '无积分信息';
-    creditsEl.textContent = `🪙 ${formatCredits(credits)}`;
 }
 
 // 使用 tokenId 加载额度摘要
@@ -319,29 +403,51 @@ function renderQuotaSummary(summaryEl, quotaData) {
     const grouped = groupModels(models);
     const groupByKey = Object.fromEntries(QUOTA_GROUPS.map(g => [g.key, g]));
 
-    const rowsHtml = QUOTA_SUMMARY_KEYS.map((groupKey) => {
+    const columnsHtml = QUOTA_SUMMARY_KEYS.map((groupKey) => {
         const group = groupByKey[groupKey];
         const summary = summarizeGroup(grouped[groupKey], requestCounts[groupKey] || 0, groupKey);
-        const barColor = summary.percentageText === '--' ? '#9ca3af' : getBarColor(summary.percentage);
-        const safeResetTime = escapeHtml(summary.resetTime);
-        const resetText = safeResetTime === '--' ? '--' : `重置: ${safeResetTime}`;
-        const estimatedText = summary.estimatedRequests > 0 ? ` · 约${summary.estimatedRequests}次` : '';
+
+        const dailyBarColor = summary.percentageText === '--' ? '#9ca3af' : getBarColor(summary.percentage);
+        const hasWeekly = summary.weeklyPercentage !== null;
+        const weeklyBarColor = hasWeekly ? getBarColor(summary.weeklyPercentage) : '#9ca3af';
+
+        const dailyCountdown = formatTimeCountdown(summary.resetTimeRaw, summary.resetTime);
+        const weeklyCountdown = hasWeekly ? formatTimeCountdown(summary.weeklyResetTimeRaw, summary.weeklyResetTime) : '--';
+
         const safeLabel = escapeHtml(group?.label || groupKey);
-        const title = `${group?.label || groupKey} - 重置: ${summary.resetTime} - 预估可用: ${summary.estimatedRequests}次`;
+        const title = `${group?.label || groupKey} - 5h: ${summary.percentageText} (${dailyCountdown}) | 周额度: ${summary.weeklyPercentageText || '--'} (${weeklyCountdown})`;
+
         return `
-            <div class="quota-summary-row" title="${escapeHtml(title)}">
-                <span class="quota-summary-icon">${getGroupIconHtml(group)}</span>
-                <span class="quota-summary-label">${safeLabel}</span>
-                <span class="quota-summary-bar"><span style="width:${summary.percentage}%;background:${barColor}"></span></span>
-                <span class="quota-summary-pct">${summary.percentageText}</span>
-                <span class="quota-summary-reset">${resetText}${estimatedText}</span>
+            <div class="quota-cockpit-col" title="${escapeHtml(title)}">
+                <div class="quota-cockpit-header">
+                    <span class="quota-cockpit-icon">${getGroupIconHtml(group)}</span>
+                    <span class="quota-cockpit-title">${safeLabel}</span>
+                </div>
+
+                <div class="quota-cockpit-item">
+                    <div class="quota-cockpit-meta">
+                        <span class="quota-cockpit-tag">5h</span>
+                        <span class="quota-cockpit-pct">${summary.percentageText}</span>
+                    </div>
+                    <div class="quota-cockpit-bar"><span style="width:${summary.percentage}%;background:${dailyBarColor}"></span></div>
+                    <div class="quota-cockpit-time">${escapeHtml(dailyCountdown)}</div>
+                </div>
+
+                <div class="quota-cockpit-item">
+                    <div class="quota-cockpit-meta">
+                        <span class="quota-cockpit-tag">Weekly</span>
+                        <span class="quota-cockpit-pct">${summary.weeklyPercentageText || '--'}</span>
+                    </div>
+                    <div class="quota-cockpit-bar"><span style="width:${summary.weeklyPercentage || 0}%;background:${weeklyBarColor}"></span></div>
+                    <div class="quota-cockpit-time">${escapeHtml(weeklyCountdown)}</div>
+                </div>
             </div>
         `;
     }).join('');
 
     summaryEl.innerHTML = `
-        <div class="quota-summary-grid">
-            ${rowsHtml}
+        <div class="quota-cockpit-grid">
+            ${columnsHtml}
         </div>
     `;
 }
@@ -349,14 +455,14 @@ function renderQuotaSummary(summaryEl, quotaData) {
 async function toggleQuotaExpand(cardId, tokenId) {
     const detailEl = document.getElementById(`quota-detail-${cardId}`);
     const toggleEl = document.getElementById(`quota-toggle-${cardId}`);
-    if (!detailEl || !toggleEl) return;
+    if (!detailEl) return;
 
     const isHidden = detailEl.classList.contains('hidden');
 
     if (isHidden) {
         detailEl.classList.remove('hidden');
         detailEl.classList.remove('collapsing');
-        toggleEl.classList.add('expanded');
+        if (toggleEl) toggleEl.classList.add('expanded');
 
         if (!detailEl.dataset.loaded) {
             detailEl.innerHTML = '<div class="quota-loading-small">加载中...</div>';
@@ -366,7 +472,7 @@ async function toggleQuotaExpand(cardId, tokenId) {
     } else {
         // 添加收起动画
         detailEl.classList.add('collapsing');
-        toggleEl.classList.remove('expanded');
+        if (toggleEl) toggleEl.classList.remove('expanded');
 
         // 动画结束后隐藏
         setTimeout(() => {
@@ -407,12 +513,15 @@ async function loadQuotaDetail(cardId, tokenId) {
                     const shortName = escapeHtml(modelId.replace('models/', '').replace('publishers/google/', '').split('/').pop());
                     const safeModelId = escapeHtml(modelId);
                     const safeResetTime = escapeHtml(quota.resetTime);
+                    const weeklyText = quota.weeklyRemaining !== null && quota.weeklyRemaining !== undefined
+                        ? ` · 周:${formatPercentage(quota.weeklyRemaining)}`
+                        : '';
                     groupHtml += `
-                        <div class="quota-detail-row" title="${safeModelId} - 重置: ${safeResetTime}">
+                        <div class="quota-detail-row" title="${safeModelId} - 重置: ${safeResetTime}${quota.weeklyResetTime ? ' - 周重置: ' + escapeHtml(quota.weeklyResetTime) : ''}">
                             <span class="quota-detail-icon">${icon}</span>
                             <span class="quota-detail-name">${shortName}</span>
                             <span class="quota-detail-bar"><span style="width:${percentage}%;background:${barColor}"></span></span>
-                            <span class="quota-detail-pct">${percentageText}</span>
+                            <span class="quota-detail-pct">${percentageText}${weeklyText}</span>
                         </div>
                     `;
                 });
@@ -422,7 +531,6 @@ async function loadQuotaDetail(cardId, tokenId) {
             const groupByKey = Object.fromEntries(QUOTA_GROUPS.map(g => [g.key, g]));
             html += renderGroup(grouped.claude, getGroupIconHtml(groupByKey.claude));
             html += renderGroup(grouped.gemini, getGroupIconHtml(groupByKey.gemini));
-            html += renderGroup(grouped.banana, getGroupIconHtml(groupByKey.banana));
             html += renderGroup(grouped.other, '');
             html += '</div>';
             html += `<button class="btn btn-info btn-xs quota-refresh-btn" onclick="refreshInlineQuota('${escapeJs(cardId)}', '${escapeJs(tokenId)}')">🔄 刷新额度</button>`;
@@ -704,21 +812,23 @@ function renderQuotaModal(quotaContent, quotaData) {
 
     let html = '';
 
-    const renderGroup = (items, group, groupKey) => {
-        const summary = summarizeGroup(items, requestCounts[groupKey] || 0, groupKey);
-        const safeLabel = escapeHtml(group.label);
-        const safeResetTime = escapeHtml(summary.resetTime);
-        const estimatedText = summary.estimatedRequests > 0 ? ` · 约${summary.estimatedRequests}次` : '';
-        const iconHtml = getGroupIconHtml(group);
-        let groupHtml = `
-            <div class="quota-group-title">
-                <span class="quota-group-left">
-                    <span class="quota-group-icon">${iconHtml}</span>
-                    <span class="quota-group-label">${safeLabel}</span>
-                </span>
-                <span class="quota-group-meta">${escapeHtml(summary.percentageText)} · 重置: ${safeResetTime}${estimatedText}</span>
-            </div>
-        `;
+        const renderGroup = (items, group, groupKey) => {
+            const summary = summarizeGroup(items, requestCounts[groupKey] || 0, groupKey);
+            const safeLabel = escapeHtml(group.label);
+            const safeResetTime = escapeHtml(summary.resetTime);
+            const safeWeeklyReset = summary.weeklyResetTime ? escapeHtml(summary.weeklyResetTime) : null;
+            const resetMetaText = safeWeeklyReset ? `日:${safeResetTime} · 周:${safeWeeklyReset}` : `日重置: ${safeResetTime}`;
+            const estimatedText = summary.estimatedRequests > 0 ? ` · 约${summary.estimatedRequests}次` : '';
+            const iconHtml = getGroupIconHtml(group);
+            let groupHtml = `
+                <div class="quota-group-title">
+                    <span class="quota-group-left">
+                        <span class="quota-group-icon">${iconHtml}</span>
+                        <span class="quota-group-label">${safeLabel}</span>
+                    </span>
+                    <span class="quota-group-meta">${escapeHtml(summary.percentageText)} · ${resetMetaText}${estimatedText}</span>
+                </div>
+            `;
 
         if (items.length === 0) {
             groupHtml += '<div class="quota-empty-small">暂无</div>';
@@ -733,6 +843,25 @@ function renderQuotaModal(quotaContent, quotaData) {
             const shortName = escapeHtml(modelId.replace('models/', '').replace('publishers/google/', ''));
             const safeModelId = escapeHtml(modelId);
             const safeResetTime = escapeHtml(quota.resetTime);
+
+            const hasWeekly = quota.weeklyRemaining !== null && quota.weeklyRemaining !== undefined;
+            const weeklyPercentage = hasWeekly ? toPercentage(quota.weeklyRemaining) : 0;
+            const weeklyPercentageText = hasWeekly ? formatPercentage(quota.weeklyRemaining) : null;
+            const weeklyBarColor = hasWeekly ? getBarColor(weeklyPercentage) : '#9ca3af';
+            const safeWeeklyResetTime = quota.weeklyResetTime ? escapeHtml(quota.weeklyResetTime) : null;
+
+            const weeklyHtml = hasWeekly ? `
+                <div class="quota-weekly-section" style="margin-top: 0.375rem; pt: 0.25rem; border-top: 1px dashed var(--border);">
+                    <div class="quota-bar-container" style="height: 4px; background: rgba(0,0,0,0.06);">
+                        <div class="quota-bar" style="width: ${weeklyPercentage}%; background: ${weeklyBarColor};"></div>
+                    </div>
+                    <div class="quota-info-row" style="font-size: 0.7rem; opacity: 0.85; margin-top: 0.125rem;">
+                        <span class="quota-reset">${safeWeeklyResetTime ? '周重置: ' + safeWeeklyResetTime : '周限额'}</span>
+                        <span class="quota-percentage">${weeklyPercentageText}</span>
+                    </div>
+                </div>
+            ` : '';
+
             groupHtml += `
                 <div class="quota-item">
                     <div class="quota-model-name" title="${safeModelId}">
@@ -746,6 +875,7 @@ function renderQuotaModal(quotaContent, quotaData) {
                         <span class="quota-reset">重置: ${safeResetTime}</span>
                         <span class="quota-percentage">${percentageText}</span>
                     </div>
+                    ${weeklyHtml}
                 </div>
             `;
         });

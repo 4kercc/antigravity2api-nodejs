@@ -90,6 +90,8 @@ export const handleGeminiCliRequest = async (req, res, forceFormat = null) => {
         );
 
         writer.finalize();
+        const finalUsage = writer.getUsageData();
+        if (finalUsage) res.locals.tokenUsage = finalUsage;
 
         clearInterval(heartbeatTimer);
         endStream(res, false);
@@ -125,6 +127,7 @@ export const handleGeminiCliRequest = async (req, res, forceFormat = null) => {
           }
         }
 
+        if (usage) res.locals.tokenUsage = usage;
         writeGeminiCliFakeStreamResponse({
           format,
           res,
@@ -187,6 +190,7 @@ export const handleGeminiCliRequest = async (req, res, forceFormat = null) => {
       }
 
       // 根据请求格式返回相应格式的响应
+      if (usage) res.locals.tokenUsage = usage;
       if (format === 'gemini') {
         res.json(createGeminiResponse(
           content,

@@ -120,7 +120,7 @@ button.loading::after {
 /* Token网格 */
 .token-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 0.75rem;
     align-items: start;
     flex: 1;
@@ -1059,85 +1059,112 @@ button.loading::after {
     font-size: 0.75rem;
 }
 
-.quota-summary-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
+.quota-cockpit-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
     width: 100%;
     min-width: 0;
+    padding: 0.1rem 0;
 }
 
-.quota-summary-row {
-    display: grid;
-    grid-template-columns: 18px 1fr 60px 52px;
-    grid-template-areas:
-        "icon label bar pct"
-        ". reset reset reset";
-    align-items: center;
-    gap: 0.35rem;
-    row-gap: 0.1rem;
+.quota-cockpit-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
     min-width: 0;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 0.375rem;
+    padding: 0.35rem 0.45rem;
+    border: 1px solid var(--border);
 }
 
-.quota-summary-icon {
-    grid-area: icon;
-    width: 18px;
-    height: 18px;
+@media (prefers-color-scheme: dark) {
+    .quota-cockpit-col {
+        background: rgba(255, 255, 255, 0.03);
+    }
+}
+
+.quota-cockpit-header {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.725rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.1rem;
+}
+
+.quota-cockpit-icon {
+    width: 14px;
+    height: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
-.quota-icon-img {
-    width: 16px;
-    height: 16px;
-    display: block;
-}
-
-.quota-summary-label {
-    grid-area: label;
+.quota-cockpit-title {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text);
-    font-weight: 500;
 }
 
-.quota-summary-reset {
-    grid-area: reset;
-    font-size: 0.65rem;
-    color: var(--text-light);
-    text-align: left;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    font-variant-numeric: tabular-nums;
+.quota-cockpit-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
     min-width: 0;
 }
 
-.quota-summary-bar {
-    grid-area: bar;
-    width: 60px;
-    height: 8px;
-    background: var(--border);
-    border-radius: 4px;
+.quota-cockpit-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.65rem;
+    line-height: 1.1;
+}
+
+.quota-cockpit-tag {
+    color: var(--text-light);
+    font-weight: 500;
+}
+
+.quota-cockpit-pct {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+
+.quota-cockpit-bar {
+    width: 100%;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 2px;
     overflow: hidden;
 }
 
-.quota-summary-bar span {
-    display: block;
-    height: 100%;
-    border-radius: 4px;
+@media (prefers-color-scheme: dark) {
+    .quota-cockpit-bar {
+        background: rgba(255, 255, 255, 0.12);
+    }
 }
 
-.quota-summary-pct {
-    grid-area: pct;
-    flex-shrink: 0;
-    font-weight: 600;
-    font-size: 0.7rem;
-    color: var(--primary);
-    min-width: 32px;
-    text-align: right;
+.quota-cockpit-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.quota-cockpit-time {
+    font-size: 0.6rem;
+    color: var(--text-light);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .quota-inline-toggle {

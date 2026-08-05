@@ -420,14 +420,55 @@ export async function getModelsWithQuotas(token) {
   const data = await fetchRawModels(headers, token);
   if (!data) return {};
 
+  // 请求 retrieveUserQuotaSummary 获取周限额 bucket (gemini-weekly / 3p-weekly)
+  let userQuotaSummary = null;
+  try {
+    const targetHost = config.api.host || 'cloudcode-pa.googleapis.com';
+    const summaryUrl = `https://${targetHost}/v1internal:retrieveUserQuotaSummary`;
+    const summaryRes = await requesterManager.fetch(summaryUrl, {
+      method: 'POST',
+      headers,
+      body: {}
+    });
+    userQuotaSummary = summaryRes?.data;
+  } catch (err) {
+    logger.warn('获取 retrieveUserQuotaSummary 失败:', err.message);
+  }
+
+  // 从 retrieveUserQuotaSummary 提取周额度 bucket 信息
+  const groupWeeklyQuotas = {};
+  if (userQuotaSummary && Array.isArray(userQuotaSummary.groups)) {
+    userQuotaSummary.groups.forEach(group => {
+      const groupName = group.displayName || '';
+      const is3p = groupName.toLowerCase().includes('claude') || groupName.toLowerCase().includes('gpt') || groupName.includes('3p');
+      const groupKey = is3p ? 'claude' : 'gemini';
+
+      const buckets = group.buckets || [];
+      const weeklyBucket = buckets.find(b => b.window === 'weekly' || (b.bucketId && b.bucketId.includes('weekly')));
+      if (weeklyBucket) {
+        groupWeeklyQuotas[groupKey] = {
+          wr: weeklyBucket.remainingFraction ?? null,
+          wt: weeklyBucket.resetTime ?? null
+        };
+      }
+    });
+  }
+
   const quotas = {};
   Object.entries(data.models || {}).forEach(([modelId, modelData]) => {
-    if (modelData.quotaInfo) {
-      quotas[modelId] = {
-        r: modelData.quotaInfo.remainingFraction,
-        t: modelData.quotaInfo.resetTime
-      };
-    }
+    const qInfo = modelData.quotaInfo || {};
+    const is3pModel = modelId.toLowerCase().includes('claude') || modelId.toLowerCase().includes('gpt');
+    const groupKey = is3pModel ? 'claude' : 'gemini';
+    const groupWeekly = groupWeeklyQuotas[groupKey] || {};
+
+    const wInfo = modelData.weeklyQuotaInfo || modelData.weeklyQuota || (Array.isArray(modelData.quotaInfos) ? modelData.quotaInfos[1] : null) || {};
+
+    quotas[modelId] = {
+      r: qInfo.remainingFraction !== undefined ? qInfo.remainingFraction : null,
+      t: qInfo.resetTime || null,
+      wr: wInfo.remainingFraction ?? qInfo.weeklyRemainingFraction ?? groupWeekly.wr ?? null,
+      wt: wInfo.resetTime ?? qInfo.weeklyResetTime ?? groupWeekly.wt ?? null
+    };
   });
 
   return quotas;

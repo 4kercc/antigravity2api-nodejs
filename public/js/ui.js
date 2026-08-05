@@ -167,6 +167,8 @@ function switchTab(tab, saveState = true) {
     }
 
     const tokensPage = document.getElementById('tokensPage');
+    const apikeysPage = document.getElementById('apikeysPage');
+    const statsPage = document.getElementById('statsPage');
     const settingsPage = document.getElementById('settingsPage');
     const logsPage = document.getElementById('logsPage');
     const geminicliPage = document.getElementById('geminicliPage');
@@ -174,6 +176,14 @@ function switchTab(tab, saveState = true) {
     // 隐藏所有页面并移除动画类
     tokensPage.classList.add('hidden');
     tokensPage.classList.remove('page-enter');
+    if (apikeysPage) {
+        apikeysPage.classList.add('hidden');
+        apikeysPage.classList.remove('page-enter');
+    }
+    if (statsPage) {
+        statsPage.classList.add('hidden');
+        statsPage.classList.remove('page-enter');
+    }
     settingsPage.classList.add('hidden');
     settingsPage.classList.remove('page-enter');
     if (logsPage) {
@@ -193,16 +203,31 @@ function switchTab(tab, saveState = true) {
     // 显示对应页面并添加入场动画
     if (tab === 'tokens') {
         tokensPage.classList.remove('hidden');
-        // 触发重排以重新播放动画
         void tokensPage.offsetWidth;
         tokensPage.classList.add('page-enter');
-        // 进入 Token 页面时，从后端读取最新 token 列表
         if (typeof loadTokens === 'function' && isLoggedIn) {
             loadTokens();
         }
+    } else if (tab === 'apikeys') {
+        if (apikeysPage) {
+            apikeysPage.classList.remove('hidden');
+            void apikeysPage.offsetWidth;
+            apikeysPage.classList.add('page-enter');
+            if (typeof loadApiKeys === 'function' && isLoggedIn) {
+                loadApiKeys();
+            }
+        }
+    } else if (tab === 'stats') {
+        if (statsPage) {
+            statsPage.classList.remove('hidden');
+            void statsPage.offsetWidth;
+            statsPage.classList.add('page-enter');
+            if (typeof loadApiKeys === 'function' && isLoggedIn) {
+                loadApiKeys();
+            }
+        }
     } else if (tab === 'settings') {
         settingsPage.classList.remove('hidden');
-        // 触发重排以重新播放动画
         void settingsPage.offsetWidth;
         settingsPage.classList.add('page-enter');
         loadConfig();
@@ -239,7 +264,7 @@ function switchTab(tab, saveState = true) {
 // 恢复Tab状态
 function restoreTabState() {
     const savedTab = localStorage.getItem('currentTab');
-    if (savedTab && (savedTab === 'tokens' || savedTab === 'settings' || savedTab === 'logs' || savedTab === 'geminicli')) {
+    if (savedTab && (savedTab === 'tokens' || savedTab === 'apikeys' || savedTab === 'stats' || savedTab === 'settings' || savedTab === 'logs' || savedTab === 'geminicli')) {
         switchTab(savedTab, false);
     }
 }

@@ -2,6 +2,7 @@ import { log } from '../utils/logger.js';
 import { generateTokenId } from '../utils/idGenerator.js';
 import quotaManager from './quota_manager.js';
 import tokenCooldownManager from './token_cooldown_manager.js';
+import config from '../config/config.js';
 
 /**
  * Token 验证器类
@@ -26,7 +27,8 @@ class TokenValidator {
       if (!salt) return true; // 没有 salt，假设有额度
 
       const tokenId = generateTokenId(token.refresh_token, salt);
-      return quotaManager.hasQuotaForModel(tokenId, modelId);
+      const threshold = Number.isFinite(config.rotation?.minQuotaThreshold) ? config.rotation.minQuotaThreshold : 0.20;
+      return quotaManager.hasQuotaForModel(tokenId, modelId, threshold);
     } catch (error) {
       // 出错时假设有额度
       log.warn(`检查额度时出错: ${error.message}`);

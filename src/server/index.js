@@ -16,6 +16,7 @@ import { getPublicDir, getRelativePath } from '../utils/paths.js';
 import { errorHandler } from '../utils/errors.js';
 import { getChunkPoolSize, clearChunkPool } from './stream.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
+import apiKeyManager from '../auth/api_key_manager.js';
 
 // 路由模块
 import adminRouter from '../routes/admin.js';
@@ -83,7 +84,8 @@ app.use((req, res, next) => {
   if (!ignorePaths.some(p => fullPath.startsWith(p))) {
     const start = Date.now();
     res.on('finish', () => {
-      logger.request(req.method, fullPath, res.statusCode, Date.now() - start);
+      const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress;
+      logger.request(req.method, fullPath, res.statusCode, Date.now() - start, clientIp, res.locals.tokenUsage);
     });
   }
   next();
@@ -94,28 +96,33 @@ app.use('/sdapi/v1', sdRouter);
 
 // ==================== API Key 验证中间件 ====================
 app.use((req, res, next) => {
+  let providedKey = null;
+
   if (req.path.startsWith('/v1/') || req.path.startsWith('/cli/v1/')) {
-    const apiKey = config.security?.apiKey;
-    if (apiKey) {
-      const authHeader = req.headers.authorization || req.headers['x-api-key'];
-      const providedKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-      if (providedKey !== apiKey) {
-        ipBlockManager.recordViolation(req.ip, 'auth_fail');
-        logger.warn(`API Key 验证失败: ${req.method} ${req.path} (提供的Key: ${providedKey ? providedKey.substring(0, 10) + '...' : '无'})`);
-        return res.status(401).json({ error: 'Invalid API Key' });
-      }
-    }
+    const authHeader = req.headers.authorization || req.headers['x-api-key'];
+    providedKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
   } else if (req.path.startsWith('/v1beta/')) {
-    const apiKey = config.security?.apiKey;
-    if (apiKey) {
-      const providedKey = req.query.key || req.headers['x-goog-api-key'];
-      if (providedKey !== apiKey) {
-        ipBlockManager.recordViolation(req.ip, 'auth_fail');
-        logger.warn(`API Key 验证失败: ${req.method} ${req.path} (提供的Key: ${providedKey ? providedKey.substring(0, 10) + '...' : '无'})`);
-        return res.status(401).json({ error: 'Invalid API Key' });
-      }
-    }
+    providedKey = req.query.key || req.headers['x-goog-api-key'];
+  } else {
+    return next();
   }
+
+  const { valid, keyInfo } = apiKeyManager.validateKey(providedKey);
+  if (!valid) {
+    ipBlockManager.recordViolation(req.ip, 'auth_fail');
+    logger.warn(`API Key 验证失败: ${req.method} ${req.path} (IP: ${req.ip}, 提供的Key: ${providedKey ? providedKey.substring(0, 10) + '...' : '无'})`);
+    return res.status(401).json({ error: 'Invalid API Key' });
+  }
+
+  req.apiKeyInfo = keyInfo;
+
+  // 请求完成时如果记录了 tokenUsage，自动累加到当前 API Key
+  res.on('finish', () => {
+    if (res.locals.tokenUsage && req.apiKeyInfo?.id) {
+      apiKeyManager.recordUsage(req.apiKeyInfo.id, res.locals.tokenUsage);
+    }
+  });
+
   next();
 });
 

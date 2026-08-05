@@ -112,6 +112,7 @@ export const handleOpenAIRequest = async (req, res) => {
           }
           writeStreamData(res, createStreamChunk(id, created, model, delta));
           writeStreamData(res, { ...createStreamChunk(id, created, model, {}, 'stop'), usage });
+          if (usage) res.locals.tokenUsage = usage;
         } else {
           let hasToolCall = false;
           let usageData = null;
@@ -154,6 +155,7 @@ export const handleOpenAIRequest = async (req, res) => {
           );
 
           writeStreamData(res, { ...createStreamChunk(id, created, model, {}, hasToolCall ? 'tool_calls' : 'stop'), usage: usageData });
+          if (usageData) res.locals.tokenUsage = usageData;
         }
 
         clearInterval(heartbeatTimer);
@@ -218,6 +220,7 @@ export const handleOpenAIRequest = async (req, res) => {
           }
         }
 
+        if (usageData) res.locals.tokenUsage = usageData;
         res.json(createOpenAIChatCompletionResponse({
           id,
           created,
@@ -266,6 +269,8 @@ export const handleOpenAIRequest = async (req, res) => {
           message.tool_calls = toolCalls.map(({ thoughtSignature, ...rest }) => rest);
         }
       }
+
+      if (usage) res.locals.tokenUsage = usage;
 
       // 使用预构建的响应对象，减少内存分配
       res.json(createOpenAIChatCompletionResponse({

@@ -13,6 +13,7 @@ import { deepMerge } from '../utils/deepMerge.js';
 import { getModelsWithQuotas } from '../api/client.js';
 import { getEnvPath } from '../utils/paths.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
+import apiKeyManager from '../auth/api_key_manager.js';
 import dotenv from 'dotenv';
 
 const envPath = getEnvPath();
@@ -744,6 +745,66 @@ router.put('/rotation', cookieAuthMiddleware, (req, res) => {
   }
 });
 
+// ==================== API Key 管理 API ====================
+
+// 获取 API Key 列表
+router.get('/api-keys', cookieAuthMiddleware, (req, res) => {
+  try {
+    const keys = apiKeyManager.getAllKeys();
+    const stats = apiKeyManager.getOverallStats();
+    res.json({ success: true, data: { keys, stats } });
+  } catch (error) {
+    logger.error('获取 API 密钥列表失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 创建 API Key
+router.post('/api-keys', cookieAuthMiddleware, (req, res) => {
+  try {
+    const { name, key } = req.body;
+    const newKey = apiKeyManager.createKey({ name, key });
+    logger.info(`创建新 API 密钥: ${newKey.name} (${newKey.id})`);
+    res.json({ success: true, data: newKey, message: '创建 API 密钥成功' });
+  } catch (error) {
+    logger.error('创建 API 密钥失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 更新 API Key (修改名称 / 启用状态 / 密钥文本)
+router.put('/api-keys/:id', cookieAuthMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, enabled, key } = req.body;
+    const updated = apiKeyManager.updateKey(id, { name, enabled, key });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'API 密钥不存在' });
+    }
+    logger.info(`更新 API 密钥 (${id}): ${updated.name}, enabled=${updated.enabled}`);
+    res.json({ success: true, data: updated, message: '更新成功' });
+  } catch (error) {
+    logger.error('更新 API 密钥失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 删除 API Key
+router.delete('/api-keys/:id', cookieAuthMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = apiKeyManager.deleteKey(id);
+    if (!success) {
+      return res.status(404).json({ success: false, message: 'API 密钥不存在' });
+    }
+    logger.info(`删除 API 密钥 (${id})`);
+    res.json({ success: true, message: '删除成功' });
+  } catch (error) {
+    logger.error('删除 API 密钥失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ==================== 日志管理 API ====================
 
 // 获取日志列表
@@ -1155,7 +1216,10 @@ router.get('/tokens/:tokenId/quotas', cookieAuthMiddleware, async (req, res) => 
       modelsWithBeijingTime[modelId] = {
         remaining: quota.r,
         resetTime: quotaManager.convertToBeijingTime(quota.t),
-        resetTimeRaw: quota.t
+        resetTimeRaw: quota.t,
+        weeklyRemaining: quota.wr ?? null,
+        weeklyResetTime: quota.wt ? quotaManager.convertToBeijingTime(quota.wt) : null,
+        weeklyResetTimeRaw: quota.wt ?? null
       };
     });
 

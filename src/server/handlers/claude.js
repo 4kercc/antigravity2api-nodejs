@@ -171,6 +171,7 @@ export const handleClaudeRequest = async (req, res, isStream) => {
             delta: { stop_reason: 'end_turn', stop_sequence: null },
             usage: usage ? { output_tokens: usage.completion_tokens || 0 } : { output_tokens: 0 }
           }));
+          if (usage) res.locals.tokenUsage = usage;
           res.write(createClaudeStreamEvent('message_stop', {
             type: "message_stop"
           }));
@@ -317,6 +318,7 @@ export const handleClaudeRequest = async (req, res, isStream) => {
           delta: { stop_reason: stopReason, stop_sequence: null },
           usage: usageData ? { output_tokens: usageData.completion_tokens || 0 } : { output_tokens: 0 }
         }));
+        if (usageData) res.locals.tokenUsage = usageData;
 
         // 发送 message_stop
         res.write(createClaudeStreamEvent('message_stop', {
@@ -384,6 +386,7 @@ export const handleClaudeRequest = async (req, res, isStream) => {
           { passSignatureToClient: config.passSignatureToClient }
         );
 
+        if (usageData) res.locals.tokenUsage = usageData;
         res.json(response);
       } catch (error) {
         logger.error('Claude 假非流请求失败:', error.message);
@@ -420,6 +423,7 @@ export const handleClaudeRequest = async (req, res, isStream) => {
         { passSignatureToClient: config.passSignatureToClient }
       );
 
+      if (usage) res.locals.tokenUsage = usage;
       res.json(response);
     }
   } catch (error) {

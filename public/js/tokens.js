@@ -412,6 +412,55 @@ function normalizeImportedProjectId(value) {
     return normalizeImportedTextValue(value);
 }
 
+function deriveExpiresInAndTimestamp({ expires_in, expiry, timestamp }) {
+    const nowMs = Date.now();
+
+    let finalExpiresIn = null;
+    if (expires_in !== undefined && expires_in !== null && String(expires_in).trim() !== '') {
+        const parsed = parseInt(expires_in, 10);
+        if (Number.isFinite(parsed) && parsed > 0) {
+            finalExpiresIn = parsed;
+        }
+    }
+
+    let finalTimestamp;
+    if (finalExpiresIn === null && typeof expiry === 'string' && expiry.trim()) {
+        const expiryMs = Date.parse(expiry);
+        if (Number.isFinite(expiryMs)) {
+            finalExpiresIn = Math.max(1, Math.floor((expiryMs - nowMs) / 1000));
+            finalTimestamp = nowMs;
+        }
+    }
+
+    if (finalTimestamp === undefined) {
+        if (timestamp !== undefined && timestamp !== null && String(timestamp).trim() !== '') {
+            if (typeof timestamp === 'number') {
+                finalTimestamp = timestamp;
+            } else {
+                const parsedTimestamp = Date.parse(timestamp);
+                finalTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : nowMs;
+            }
+        } else {
+            finalTimestamp = nowMs;
+        }
+    }
+
+    return {
+        expires_in: finalExpiresIn ?? 3599,
+        timestamp: finalTimestamp
+    };
+}
+
+function normalizeTruthyBoolean(value) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+    }
+    return false;
+}
+
 function parseImportedEnable(rawToken) {
     let enable = findFieldByKeyword(rawToken, 'enable');
     if (enable === undefined) enable = findFieldByKeyword(rawToken, 'enabled');
@@ -968,12 +1017,11 @@ function renderTokens(tokens) {
         <div class="token-card ${!token.enable ? 'disabled' : ''} ${isRefreshing ? 'refreshing' : ''} ${skipAnimation ? 'no-animation' : ''}" id="card-${escapeHtml(cardId)}">
             <div class="token-header">
                 <div class="token-header-left">
-                    <span class="status ${token.enable ? 'enabled' : 'disabled'}">
-                        ${token.enable ? '✅ 启用' : '❌ 禁用'}
-                    </span>
-                    ${token.sub ? `<span class="status-subscription subscription-badge ${token.sub === 'free-tier' ? 'free-tier' : 'paid-tier'}" title="${escapeHtml(token.sub)}">${escapeHtml(formatSubTier(token.sub))}</span>` : ''}
-                    <span class="status-credits ${token.credits !== null && token.credits !== undefined ? (Number(token.credits) <= 0 ? 'credits-empty' : '') : 'no-credits'}" title="${token.credits !== null && token.credits !== undefined ? '剩余积分: ' + formatCredits(token.credits) : '无积分信息'}">🪙 ${formatCredits(token.credits)}</span>
-                    <button class="btn-icon token-refresh-btn ${isRefreshing ? 'loading' : ''}" id="refresh-btn-${escapeHtml(cardId)}" onclick="manualRefreshToken('${safeTokenId}')" title="刷新Token" ${isRefreshing ? 'disabled' : ''}>🔄</button>
+	                    <span class="status ${token.enable ? 'enabled' : 'disabled'}">
+	                        ${token.enable ? '✅ 启用' : '❌ 禁用'}
+	                    </span>
+	                    ${token.sub ? `<span class="status-subscription subscription-badge ${token.sub === 'free-tier' ? 'free-tier' : 'paid-tier'}" title="${escapeHtml(token.sub)}">${escapeHtml(formatSubTier(token.sub))}</span>` : ''}
+	                    <button class="btn-icon token-refresh-btn ${isRefreshing ? 'loading' : ''}" id="refresh-btn-${escapeHtml(cardId)}" onclick="manualRefreshToken('${safeTokenId}')" title="刷新Token" ${isRefreshing ? 'disabled' : ''}>🔄</button>
                 </div>
                 <div class="token-header-right">
                     <button class="btn-icon" onclick="showTokenDetail('${safeTokenId}')" title="编辑">✏️</button>
@@ -997,13 +1045,12 @@ function renderTokens(tokens) {
                 <span class="token-id-label">🔑</span>
                 <span class="token-id-value">${escapeHtml(tokenId.length > 24 ? tokenId.substring(0, 12) + '...' + tokenId.substring(tokenId.length - 8) : tokenId)}</span>
             </div>
-            <div class="token-quota-inline" id="quota-inline-${escapeHtml(cardId)}">
-                <div class="quota-inline-header" onclick="toggleQuotaExpand('${escapeJs(cardId)}', '${safeTokenId}')">
-                    <span class="quota-inline-summary" id="quota-summary-${escapeHtml(cardId)}">📊 加载中...</span>
-                    <span class="quota-inline-toggle" id="quota-toggle-${escapeHtml(cardId)}">▼</span>
-                </div>
-                <div class="quota-inline-detail hidden" id="quota-detail-${escapeHtml(cardId)}"></div>
-            </div>
+	            <div class="token-quota-inline" id="quota-inline-${escapeHtml(cardId)}">
+	                <div class="quota-inline-header" onclick="toggleQuotaExpand('${escapeJs(cardId)}', '${safeTokenId}')">
+	                    <span class="quota-inline-summary" id="quota-summary-${escapeHtml(cardId)}">📊 加载中...</span>
+	                </div>
+	                <div class="quota-inline-detail hidden" id="quota-detail-${escapeHtml(cardId)}"></div>
+	            </div>
             <div class="token-actions">
                 <button class="btn btn-info btn-xs" onclick="showQuotaModal('${safeTokenId}')" title="查看额度">📊 详情</button>
                 <button class="btn ${token.enable ? 'btn-warning' : 'btn-success'} btn-xs" onclick="toggleToken('${safeTokenId}', ${!token.enable})" title="${token.enable ? '禁用' : '启用'}">

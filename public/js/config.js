@@ -183,6 +183,12 @@ async function loadConfig() {
                 if (form.elements['ROTATION_REQUEST_COUNT']) {
                     form.elements['ROTATION_REQUEST_COUNT'].value = json.rotation.requestCount || 10;
                 }
+                if (form.elements['ROTATION_MIN_QUOTA_THRESHOLD']) {
+                    const thresholdPct = Math.round((json.rotation.minQuotaThreshold ?? 0.20) * 100);
+                    form.elements['ROTATION_MIN_QUOTA_THRESHOLD'].value = thresholdPct;
+                    const valDisplay = document.getElementById('minQuotaThresholdVal');
+                    if (valDisplay) valDisplay.textContent = thresholdPct + '%';
+                }
                 toggleRequestCountInput();
             }
 
@@ -341,6 +347,7 @@ async function saveConfig(e) {
             }
             else if (key === 'ROTATION_STRATEGY') jsonConfig.rotation.strategy = value || undefined;
             else if (key === 'ROTATION_REQUEST_COUNT') jsonConfig.rotation.requestCount = parseInt(value) || undefined;
+            else if (key === 'ROTATION_MIN_QUOTA_THRESHOLD') jsonConfig.rotation.minQuotaThreshold = (parseFloat(value) || 0) / 100;
             else envConfig[key] = value;
         }
     });

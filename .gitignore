@@ -1,35 +1,28 @@
-# Node.js
-node_modules/
-
-# 账户信息
-# accounts.json
-
-# 日志
-*.log
-logs/
-.limcode
-
-# 环境变量
+# 环境变量与敏感凭据文件
 .env
 .env.local
+.env.*.local
 
-# 配置文件（用户自定义）
+# 运行数据与账号存储目录 (包含刷新令牌、访问令牌、API密钥、额度缓存等)
+data/
+data/*
+
+# 用户配置文件 (项目生成的用户自定义配置)
 config.json
+security.json
 
-# 系统文件
+# 日志目录
+logs/
+
+# Node.js 依赖与环境
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 编辑器与工具目录
+.zcode/
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
-
-data/
-test/*.png
-test/*.jpeg
-public/images
-
-# 编译输出
-dist/
-
-# 参考文件
-gcli2api/
-plans/geminicli-implementation-plan.md
-
-security.json

@@ -42,16 +42,29 @@ function logMessage(level, ...args) {
   logWsServer.storeLog(level, message);
 }
 
-function logRequest(method, path, status, duration) {
+function logRequest(method, path, status, duration, ip = '', tokenUsage = null) {
   const statusColor = status >= 500 ? colors.red : status >= 400 ? colors.yellow : colors.green;
-  const message = `[${method}] - ${path} ${status} ${duration}ms`;
+  let ipStr = ip ? `[${ip}] ` : '';
+  let usageStr = '';
+  if (tokenUsage) {
+    const input = tokenUsage.prompt_tokens || tokenUsage.input_tokens || tokenUsage.promptTokenCount || 0;
+    const output = tokenUsage.completion_tokens || tokenUsage.output_tokens || tokenUsage.candidatesTokenCount || 0;
+    const total = tokenUsage.total_tokens || tokenUsage.totalTokenCount || (input + output);
+    usageStr = ` | Tokens: In ${input} / Out ${output} / Total ${total}`;
+  }
+
+  const message = `${ipStr}[${method}] - ${path} ${status} ${duration}ms${usageStr}`;
 
   // 输出到控制台
-  console.log(`${colors.cyan}[${method}]${colors.reset} - ${path} ${statusColor}${status}${colors.reset} ${colors.gray}${duration}ms${colors.reset}`);
+  console.log(`${colors.gray}${timestampStr()}${colors.reset} ${colors.cyan}[${method}]${colors.reset} ${ipStr}- ${path} ${statusColor}${status}${colors.reset} ${colors.gray}${duration}ms${colors.reset}${usageStr}`);
 
   // 存储日志（根据状态码决定级别）
   const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'request';
   logWsServer.storeLog(level, message);
+}
+
+function timestampStr() {
+  return new Date().toLocaleTimeString('zh-CN', { hour12: false });
 }
 
 export const log = {

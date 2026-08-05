@@ -132,7 +132,17 @@ class RequesterManager {
     if (this._useAxios) {
       return this._axiosFetch(url, { method, headers, body, okStatus });
     }
-    return this._tlsFetch(url, { method, headers, body, okStatus });
+
+    try {
+      return await this._tlsFetch(url, { method, headers, body, okStatus });
+    } catch (error) {
+      if (!this._shouldFallbackToAxios(error)) {
+        throw error;
+      }
+      logger.warn('[RequesterManager] FingerprintRequester 请求失败，自动降级使用 axios:', error.message);
+      this._tlsInitFailed = true;
+      return this._axiosFetch(url, { method, headers, body, okStatus });
+    }
   }
 
   /**
@@ -152,7 +162,29 @@ class RequesterManager {
     if (this._useAxios) {
       return this._axiosFetchStream(url, { method, headers, body });
     }
-    return this._tlsFetchStream(url, { method, headers, body });
+
+    try {
+      return this._tlsFetchStream(url, { method, headers, body });
+    } catch (error) {
+      if (!this._shouldFallbackToAxios(error)) {
+        throw error;
+      }
+      logger.warn('[RequesterManager] FingerprintRequester 流式请求启动失败，自动降级使用 axios:', error.message);
+      this._tlsInitFailed = true;
+      return this._axiosFetchStream(url, { method, headers, body });
+    }
+  }
+
+  _shouldFallbackToAxios(error) {
+    const code = error?.code || error?.cause?.code;
+    if (code === 'ERR_CONFIG') return false;
+    if (code === 'ECONNABORTED' || code === 'ERR_NETWORK') return true;
+    const message = error?.message || '';
+    return message.includes('dial tcp') ||
+      message.includes('missing address') ||
+      message.includes('no such host') ||
+      message.includes('connection refused') ||
+      message.includes('timeout');
   }
 
   // ==================== TLS 路径 ====================

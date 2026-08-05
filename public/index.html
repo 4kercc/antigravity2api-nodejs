@@ -252,6 +252,10 @@
             <div class="tabs">
                 <button class="tab active" data-tab="tokens" onclick="switchTab('tokens')"><span
                         class="tab-icon">🎯</span><span class="tab-text">Token</span></button>
+                <button class="tab" data-tab="apikeys" onclick="switchTab('apikeys')"><span
+                        class="tab-icon">🔑</span><span class="tab-text">API 密钥</span></button>
+                <button class="tab" data-tab="stats" onclick="switchTab('stats')"><span
+                        class="tab-icon">📊</span><span class="tab-text">使用记录</span></button>
                 <button class="tab" data-tab="geminicli" onclick="switchTab('geminicli')"><span
                         class="tab-icon">💎</span><span class="tab-text">CLI</span></button>
                 <button class="tab" data-tab="settings" onclick="switchTab('settings')"><span
@@ -307,6 +311,103 @@
                             <div class="empty-state-icon">📦</div>
                             <div class="empty-state-text">暂无Token</div>
                             <div class="empty-state-hint">点击上方OAuth按钮添加Token</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- API 密钥管理页面 -->
+                <div id="apikeysPage" class="hidden">
+                    <div class="top-bar">
+                        <div class="stats-inline">
+                            <div class="stat-item active">
+                                <span class="stat-num" id="statApiKeyTotal">0</span>
+                                <span class="stat-text">密钥总数</span>
+                            </div>
+                            <div class="stat-item success">
+                                <span class="stat-num" id="statApiKeyEnabled">0</span>
+                                <span class="stat-text">已启用</span>
+                            </div>
+                        </div>
+                        <div class="action-btns">
+                            <button type="button" onclick="showCreateApiKeyModal()" class="btn btn-success btn-sm">➕ 新建 API 密钥</button>
+                            <button type="button" onclick="loadApiKeys()" class="btn btn-warning btn-sm">🔄 刷新</button>
+                        </div>
+                    </div>
+                    <div class="table-responsive" style="margin-top: 1rem; background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1rem;">
+                        <table class="apikeys-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color, #e2e8f0); text-align: left;">
+                                    <th style="padding: 10px;">名称</th>
+                                    <th style="padding: 10px;">API 密钥 (Key)</th>
+                                    <th style="padding: 10px;">状态</th>
+                                    <th style="padding: 10px;">已用请求数</th>
+                                    <th style="padding: 10px;">累计 Token 消耗</th>
+                                    <th style="padding: 10px;">创建 / 最后使用</th>
+                                    <th style="padding: 10px; text-align: right;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="apiKeysTableBody">
+                                <tr>
+                                    <td colspan="7" style="text-align: center; padding: 20px; color: var(--text-light, #888);">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 使用记录 (统计) 页面 -->
+                <div id="statsPage" class="hidden">
+                    <div class="top-bar" style="margin-bottom: 1rem;">
+                        <div class="form-row-inline" style="gap: 1rem; align-items: center;">
+                            <label style="font-weight: bold;">🔑 选择 API 密钥:</label>
+                            <select id="statsApiKeySelect" onchange="renderStatsDashboard()" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color, #ccc);">
+                                <option value="all">全部 API 密钥</option>
+                            </select>
+                            <button type="button" onclick="loadApiKeys()" class="btn btn-info btn-sm">🔄 刷新统计</button>
+                        </div>
+                    </div>
+
+                    <!-- 统计数据大卡片概览 -->
+                    <div class="stats-overview-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                        <div style="background: var(--bg-card, #fff); border-radius: 8px; padding: 1.2rem; border: 1px solid var(--border-color, #e2e8f0); text-align: center;">
+                            <div style="font-size: 0.9rem; color: var(--text-light, #888);">总请求次数</div>
+                            <div id="dashTotalRequests" style="font-size: 1.8rem; font-weight: bold; color: var(--primary, #4f46e5); margin-top: 5px;">0</div>
+                        </div>
+                        <div style="background: var(--bg-card, #fff); border-radius: 8px; padding: 1.2rem; border: 1px solid var(--border-color, #e2e8f0); text-align: center;">
+                            <div style="font-size: 0.9rem; color: var(--text-light, #888);">Input Tokens (输入)</div>
+                            <div id="dashInputTokens" style="font-size: 1.8rem; font-weight: bold; color: #10b981; margin-top: 5px;">0</div>
+                        </div>
+                        <div style="background: var(--bg-card, #fff); border-radius: 8px; padding: 1.2rem; border: 1px solid var(--border-color, #e2e8f0); text-align: center;">
+                            <div style="font-size: 0.9rem; color: var(--text-light, #888);">Output Tokens (输出)</div>
+                            <div id="dashOutputTokens" style="font-size: 1.8rem; font-weight: bold; color: #f59e0b; margin-top: 5px;">0</div>
+                        </div>
+                        <div style="background: var(--bg-card, #fff); border-radius: 8px; padding: 1.2rem; border: 1px solid var(--border-color, #e2e8f0); text-align: center;">
+                            <div style="font-size: 0.9rem; color: var(--text-light, #888);">Total Tokens (总量)</div>
+                            <div id="dashTotalTokens" style="font-size: 1.8rem; font-weight: bold; color: #3b82f6; margin-top: 5px;">0</div>
+                        </div>
+                    </div>
+
+                    <!-- 各 Key 消费明细列表 -->
+                    <div style="background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1.2rem;">
+                        <h4 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-color, #333);">📊 API 密钥消耗明细</h4>
+                        <div class="table-responsive">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid var(--border-color, #e2e8f0); text-align: left;">
+                                        <th style="padding: 10px;">API 密钥</th>
+                                        <th style="padding: 10px;">请求数</th>
+                                        <th style="padding: 10px;">输入 Tokens</th>
+                                        <th style="padding: 10px;">输出 Tokens</th>
+                                        <th style="padding: 10px;">总 Tokens</th>
+                                        <th style="padding: 10px;">占比 (Total Tokens)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="statsTableBody">
+                                    <tr>
+                                        <td colspan="6" style="text-align: center; padding: 20px; color: var(--text-light, #888);">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -651,6 +752,13 @@
                                                 <input type="number" name="ROTATION_REQUEST_COUNT" min="1"
                                                     placeholder="10">
                                             </div>
+                                            <div class="form-group compact">
+                                                <label>最低额度限制 <span class="help-tip"
+                                                        data-tooltip="当5小时或周额度剩余低于该比例时，自动暂停该账号轮询，待额度恢复后重新启用">?</span>
+                                                    <span id="minQuotaThresholdVal" style="color: var(--primary-color); font-weight: bold; margin-left: 8px;">20%</span>
+                                                </label>
+                                                <input type="range" name="ROTATION_MIN_QUOTA_THRESHOLD" id="minQuotaThreshold" min="0" max="90" step="5" value="20" oninput="document.getElementById('minQuotaThresholdVal').textContent = this.value + '%'">
+                                            </div>
                                         </div>
                                         <div class="rotation-status" id="rotationStatus">
                                             <span class="rotation-label">当前状态:</span>
@@ -761,6 +869,7 @@
     <script src="js/auth.js" defer></script>
     <script src="js/quota.js" defer></script>
     <script src="js/tokens.js" defer></script>
+    <script src="js/apikeys.js" defer></script>
     <script src="js/geminicli.js" defer></script>
     <script src="js/config.js" defer></script>
     <script src="js/security.js" defer></script>

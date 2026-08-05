@@ -390,7 +390,8 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
     },
     rotation: {
       strategy: jsonConfig.rotation?.strategy || 'round_robin',
-      requestCount: jsonConfig.rotation?.requestCount || 10
+      requestCount: jsonConfig.rotation?.requestCount || 10,
+      minQuotaThreshold: Number.isFinite(jsonConfig.rotation?.minQuotaThreshold) ? jsonConfig.rotation.minQuotaThreshold : 0.20
     },
     // 日志配置
     log: {

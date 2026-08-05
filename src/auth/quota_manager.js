@@ -235,7 +235,7 @@ class QuotaManager {
    * @param {string} modelId - 模型 ID
    * @returns {boolean} 是否有额度（true = 有额度或无数据，false = 额度为 0）
    */
-  hasQuotaForModel(tokenId, modelId) {
+  hasQuotaForModel(tokenId, modelId, threshold = 0) {
     const data = this.cache.get(tokenId);
     if (!data || !data.models) {
       // 没有额度数据，假设有额度
@@ -251,8 +251,10 @@ class QuotaManager {
       const idGroupKey = getGroupKey(id);
       if (idGroupKey === groupKey) {
         const remaining = quotaData.r || 0;
-        if (minRemaining === null || remaining < minRemaining) {
-          minRemaining = remaining;
+        const weeklyRemaining = quotaData.wr !== null && quotaData.wr !== undefined ? quotaData.wr : null;
+        const effectiveRemaining = weeklyRemaining !== null ? Math.min(remaining, weeklyRemaining) : remaining;
+        if (minRemaining === null || effectiveRemaining < minRemaining) {
+          minRemaining = effectiveRemaining;
         }
       }
     }
@@ -260,8 +262,8 @@ class QuotaManager {
     // 没有找到该组的模型数据，假设有额度
     if (minRemaining === null) return true;
 
-    // 该组最小额度为 0，说明额度耗尽
-    return minRemaining > 0;
+    // 比较有效额度是否达到设定阈值 (例如 0.20)
+    return minRemaining >= threshold;
   }
 
   /**

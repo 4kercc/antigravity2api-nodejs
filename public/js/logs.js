@@ -277,8 +277,11 @@ function renderLogs() {
             second: '2-digit'
         });
 
-        // 高亮搜索关键词
+        // 高亮 IP 和 Tokens 消费
         let message = escapeHtml(log.message);
+        message = message.replace(/\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]/g, '<span style="background: rgba(99, 102, 241, 0.15); color: var(--primary, #4f46e5); padding: 1px 5px; border-radius: 4px; font-weight: bold; font-family: monospace;">[$1]</span>');
+        message = message.replace(/(\s\|\sTokens:\sIn\s\d+\s\/\sOut\s\d+\s\/\sTotal\s\d+)/g, '<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 1px 5px; border-radius: 4px; font-weight: bold;">$1</span>');
+
         if (logsState.searchKeyword) {
             const regex = new RegExp(`(${escapeRegExp(logsState.searchKeyword)})`, 'gi');
             message = message.replace(regex, '<mark>$1</mark>');
