@@ -6,7 +6,7 @@ echo "========================================"
 echo
 
 # 1. 自动检测环境与获取当前目录
-REPO_URL="https://github.com/liuw1535/antigravity2api-nodejs.git"
+REPO_URL="https://github.com/4kercc/antigravity2api-nodejs.git"
 TARGET_DIR="antigravity2api-nodejs"
 APP_NAME="antigravity2api"
 
