@@ -10,7 +10,7 @@ if [ -d "antigravity2api-nodejs" ]; then
     echo "当前目录已经存在同名文件夹，已退出"
     exit 1
 fi
-git clone https://github.com/liuw1535/antigravity2api-nodejs.git
+git clone https://github.com/4kercc/antigravity2api-nodejs.git
 if [ $? -ne 0 ]; then
     echo "克隆失败，请检查网络或 Git 是否已安装"
     exit 1
