@@ -123,7 +123,6 @@ button.loading::after {
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 0.75rem;
     align-items: start;
-    flex: 1;
     padding: 4px 4px 1rem 4px;
     min-height: 0;
 }
