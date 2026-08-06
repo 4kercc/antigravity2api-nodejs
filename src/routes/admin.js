@@ -115,22 +115,24 @@ router.post('/login', async (req, res) => {
     });
 
     // 同时返回 token（兼容旧版本前端）
-    logger.info(`管理员登录成功 IP: ${clientIP}`);
+    logger.info(`🔐 管理员登录成功 [IP: ${clientIP}] (用户: ${username})`);
     res.json({ success: true, token });
   } else {
     // 使用统一的 IP 封禁管理器记录违规
     await ipBlockManager.recordViolation(clientIP, 'admin_login_fail');
-    logger.warn(`管理员登录失败 IP: ${clientIP}`);
+    logger.warn(`❌ 管理员登录失败 [IP: ${clientIP}] (尝试用户: ${username})`);
     res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
 });
 
 // 登出接口
 router.post('/logout', (req, res) => {
+  const clientIP = getClientIP(req);
   res.clearCookie('authToken', {
     ...COOKIE_OPTIONS,
     secure: req.secure || process.env.NODE_ENV === 'production'
   });
+  logger.info(`🚪 管理员安全退出登录 [IP: ${clientIP}]`);
   res.json({ success: true, message: '已登出' });
 });
 
