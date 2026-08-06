@@ -2,10 +2,6 @@
 
 将 Google Antigravity API 转换为 OpenAI 兼容格式的代理服务，支持流式响应、工具调用和多账号管理。
 
-## 🌟 Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=liuw1535/antigravity2api-nodejs&type=Date)](https://www.star-history.com/#liuw1535/antigravity2api-nodejs&Date)
-
 ## ✨ 功能特性
 
 | 特性 | 说明 |
@@ -35,22 +31,22 @@
 
 **Windows (cmd.exe)**：
 ```bash
-curl -O https://raw.githubusercontent.com/liuw1535/antigravity2api-nodejs/main/setup.bat && setup.bat
+curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.bat && setup.bat
 ```
 
 **Windows (PowerShell)**：
 ```powershell
-IwR -Uri https://raw.githubusercontent.com/liuw1535/antigravity2api-nodejs/main/setup.bat -OutFile setup.bat; .\setup.bat
+IwR -Uri https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.bat -OutFile setup.bat; .\setup.bat
 ```
 
 **Linux/macOS**：
 ```bash
-wget https://raw.githubusercontent.com/liuw1535/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
+wget https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 或使用 curl：
 ```bash
-curl -O https://raw.githubusercontent.com/liuw1535/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
+curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 脚本会自动完成以下操作：
