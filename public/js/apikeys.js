@@ -40,8 +40,9 @@ function renderApiKeysTable() {
         const requests = k.usage?.requests || 0;
         const totalTokens = (k.usage?.totalTokens || 0).toLocaleString();
 
-        const keyDisplay = isSensitiveInfoHidden
-            ? (k.key.substring(0, 7) + '...' + k.key.substring(k.key.length - 4))
+        const keyHide = typeof sensitiveInfoHidden !== 'undefined' ? sensitiveInfoHidden : true;
+        const keyDisplay = keyHide
+            ? (k.key.length > 12 ? (k.key.substring(0, 7) + '...' + k.key.substring(k.key.length - 4)) : '••••••••••••')
             : k.key;
 
         return `
@@ -49,7 +50,7 @@ function renderApiKeysTable() {
                 <td style="padding: 10px; font-weight: bold;">${escapeHtml(k.name)}</td>
                 <td style="padding: 10px; font-family: monospace;">
                     <span title="${escapeHtml(k.key)}">${escapeHtml(keyDisplay)}</span>
-                    <button class="btn btn-sm" onclick="copyToClipboard('${escapeHtml(k.key)}')" style="padding: 2px 6px; font-size: 0.75rem; margin-left: 5px;" title="复制 Key">📋</button>
+                    <button class="btn btn-sm" data-key="${escapeHtml(k.key)}" onclick="copyApiKeyBtn(this)" style="padding: 2px 6px; font-size: 0.75rem; margin-left: 5px;" title="复制 Key">📋</button>
                 </td>
                 <td style="padding: 10px;">
                     <label class="switch" style="transform: scale(0.8); transform-origin: left center;">
@@ -69,6 +70,11 @@ function renderApiKeysTable() {
             </tr>
         `;
     }).join('');
+}
+
+function copyApiKeyBtn(btn) {
+    const keyText = btn ? btn.getAttribute('data-key') : '';
+    copyToClipboard(keyText, 'API 密钥已复制到剪贴板');
 }
 
 async function toggleApiKeyEnabled(id, enabled) {
@@ -92,26 +98,59 @@ async function toggleApiKeyEnabled(id, enabled) {
 
 async function showCreateApiKeyModal() {
     const defaultKey = 'sk-' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-    const content = `
-        <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
-            <div class="form-group compact">
+    const modal = document.createElement('div');
+    modal.className = 'modal form-modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-title">➕ 新建 API 密钥</div>
+            <div class="form-group compact" style="margin-top: 1rem;">
                 <label>密钥名称</label>
                 <input type="text" id="newApiKeyName" placeholder="例如: 生产环境应用 / OpenWebUI" value="API Key">
             </div>
-            <div class="form-group compact">
+            <div class="form-group compact" style="margin-top: 0.5rem;">
                 <label>自定义密钥字符串 (留空自动生成)</label>
                 <input type="text" id="newApiKeyString" placeholder="${defaultKey}">
             </div>
+            <div class="modal-actions" style="margin-top: 1.5rem;">
+                <button class="btn btn-secondary" id="cancelCreateApiKeyBtn">取消</button>
+                <button class="btn btn-primary" id="confirmCreateApiKeyBtn">创建</button>
+            </div>
         </div>
     `;
+    document.body.appendChild(modal);
 
-    const confirmed = await showConfirmModal('➕ 新建 API 密钥', content);
+    const confirmed = await new Promise((resolve) => {
+        const cancelBtn = modal.querySelector('#cancelCreateApiKeyBtn');
+        const confirmBtn = modal.querySelector('#confirmCreateApiKeyBtn');
+        
+        const cleanup = () => {
+            modal.remove();
+        };
+
+        cancelBtn.addEventListener('click', () => {
+            cleanup();
+            resolve(false);
+        });
+
+        confirmBtn.addEventListener('click', () => {
+            resolve(true);
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        });
+    });
+
     if (confirmed) {
         const nameInput = document.getElementById('newApiKeyName');
         const keyInput = document.getElementById('newApiKeyString');
 
-        const name = nameInput ? nameInput.value : 'API Key';
-        const key = keyInput ? keyInput.value : '';
+        const name = nameInput ? nameInput.value.trim() : 'API Key';
+        const key = keyInput ? keyInput.value.trim() : '';
+        modal.remove();
 
         try {
             const res = await authFetch('/admin/api-keys', {
@@ -133,7 +172,7 @@ async function showCreateApiKeyModal() {
 }
 
 async function deleteApiKey(id, name) {
-    const confirmed = await showConfirmModal('⚠️ 删除确认', `确定要删除 API 密钥【${name}】吗？此操作无法撤销。`);
+    const confirmed = await showConfirm(`确定要删除 API 密钥【${name}】吗？此操作无法撤销。`, '⚠️ 删除确认');
     if (confirmed) {
         try {
             const res = await authFetch(`/admin/api-keys/${id}`, { method: 'DELETE' });

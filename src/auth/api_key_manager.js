@@ -1,12 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { log } from '../utils/logger.js';
+import logger, { log } from '../utils/logger.js';
 import config from '../config/config.js';
+import { getDataDir } from '../utils/paths.js';
 
 class ApiKeyManager {
   constructor() {
-    this.filePath = path.join(process.cwd(), 'data', 'api_keys.json');
+    this.filePath = path.join(getDataDir(), 'api_keys.json');
     this.keys = [];
     this.loadFromFile();
   }
@@ -106,8 +107,15 @@ class ApiKeyManager {
   }
 
   createKey({ name, key }) {
-    const keyId = 'key_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
     const apiKeyString = key && key.trim() ? key.trim() : ('sk-' + crypto.randomBytes(16).toString('hex'));
+
+    // 校验 key 是否已存在
+    const exists = this.keys.some(k => k.key === apiKeyString);
+    if (exists) {
+      throw new Error('API 密钥已存在，请勿重复添加相同的密钥');
+    }
+
+    const keyId = 'key_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
 
     const newKey = {
       id: keyId,
@@ -133,14 +141,20 @@ class ApiKeyManager {
     const target = this.keys.find(k => k.id === id);
     if (!target) return null;
 
+    if (typeof key === 'string' && key.trim() && key.trim() !== target.key) {
+      const newKeyString = key.trim();
+      const exists = this.keys.some(k => k.id !== id && k.key === newKeyString);
+      if (exists) {
+        throw new Error('修改后的 API 密钥与现有密钥重复');
+      }
+      target.key = newKeyString;
+    }
+
     if (typeof name === 'string' && name.trim()) {
       target.name = name.trim();
     }
     if (typeof enabled === 'boolean') {
       target.enabled = enabled;
-    }
-    if (typeof key === 'string' && key.trim()) {
-      target.key = key.trim();
     }
 
     this.saveToFile();
