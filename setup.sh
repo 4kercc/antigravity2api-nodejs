@@ -5,7 +5,7 @@ echo "Antigravity2API 一键克隆、部署与 PM2 守护脚本"
 echo "========================================"
 echo
 
-# 1. 自动检测环境与获取当前目录
+# 1. 配置仓库与程序运行主路径
 REPO_URL="https://github.com/liuw1535/antigravity2api-nodejs.git"
 TARGET_DIR="antigravity2api-nodejs"
 APP_NAME="antigravity2api"
@@ -25,16 +25,16 @@ if ! command -v curl &> /dev/null || ! command -v git &> /dev/null; then
     fi
 fi
 
-# 3. 自动克隆或进入项目目录
+# 3. 自动克隆或进入确切的项目目录
 echo
-echo "[2/8] 获取项目代码..."
+echo "[2/8] 获取项目代码与定位工作目录..."
 if [ -f "package.json" ] && grep -q "antigravity" package.json 2>/dev/null; then
-    echo "✓ 当前已在项目目录中，准备开始配置..."
+    echo "✓ 当前目录已被识别为 Antigravity 项目目录: $(pwd)"
 elif [ -d "$TARGET_DIR" ]; then
-    echo "发现已存在 ${TARGET_DIR} 目录，进入该目录..."
+    echo "发现已存在固定目录 ${TARGET_DIR}，进入该目录..."
     cd "$TARGET_DIR" || exit 1
 else
-    echo "正在从 GitHub 克隆项目代码: ${REPO_URL}..."
+    echo "正在克隆代码到固定目录 ./${TARGET_DIR}..."
     git clone "$REPO_URL" "$TARGET_DIR"
     if [ $? -ne 0 ]; then
         echo "❌ 项目克隆失败，请检查网络或 Git 配置"
@@ -42,6 +42,10 @@ else
     fi
     cd "$TARGET_DIR" || exit 1
 fi
+
+# 动态获取当前绝对路径，确保 PM2 始终绑定该绝对路径
+PROJECT_ABS_PATH="$(pwd)"
+echo "✓ 确立程序绝对工作目录: ${PROJECT_ABS_PATH}"
 
 # 自动为指纹二进制分配执行权限
 if [ -d "src/bin" ]; then
@@ -132,24 +136,34 @@ fi
 # 8. 加入 PM2 服务与开机自启动
 echo
 echo "[7/8] 启动 PM2 进程守护并配置自启动..."
-if pm2 describe "$APP_NAME" > /dev/null 2>&1; then
-    echo "重置并重启已有的 PM2 实例: ${APP_NAME}..."
-    pm2 restart "$APP_NAME"
-else
-    echo "新建 PM2 服务实例: ${APP_NAME}..."
-    pm2 start src/server/index.js --name "$APP_NAME" --node-args="--expose-gc"
-fi
+# 清理死进程，确保以固定的绝对路径启动
+pm2 delete "$APP_NAME" > /dev/null 2>&1 || true
+
+echo "新建 PM2 服务实例 [工作路径: ${PROJECT_ABS_PATH}]..."
+pm2 start "${PROJECT_ABS_PATH}/src/server/index.js" --name "$APP_NAME" --cwd "${PROJECT_ABS_PATH}" --node-args="--expose-gc"
 
 pm2 save
 pm2 startup 2>/dev/null || echo "💡 提示: 请复制下方系统提示的命令以完成开机自启安装"
+
+# 动态获取服务器公网 IP (带有超时和多服务兜底)
+SERVER_PUBLIC_IP=$(curl -s --connect-timeout 3 https://api.ipify.org || curl -s --connect-timeout 3 https://ifconfig.me || curl -s --connect-timeout 3 https://ipinfo.io/ip || echo "")
+if [ -n "$SERVER_PUBLIC_IP" ]; then
+    PUBLIC_URL="http://${SERVER_PUBLIC_IP}:8045"
+else
+    PUBLIC_URL="http://您的服务器IP:8045"
+fi
 
 echo
 echo "=========================================================="
 echo "🎉 Antigravity2API 部署成功并已提交 PM2 守护运行！"
 echo "=========================================================="
 echo
+echo "📂 项目安装路径："
+echo "   - 绝对路径: ${PROJECT_ABS_PATH}"
+echo
 echo "🌐 服务访问信息："
-echo "   - 管理后台地址: http://127.0.0.1:8045"
+echo "   - 公网管理后台: ${PUBLIC_URL}"
+echo "   - 本地管理后台: http://127.0.0.1:8045"
 echo "   - 管理员账号:   $ADMIN_USER"
 echo "   - 管理员密码:   $ADMIN_PASS"
 echo "   - 初始 API 密钥: $FINAL_API_KEY"
