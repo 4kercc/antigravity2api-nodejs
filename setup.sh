@@ -1,25 +1,17 @@
 #!/usr/bin/env bash
 
 echo "========================================"
-echo "Antigravity2API 一键部署与 PM2 守护脚本"
+echo "Antigravity2API 一键克隆、部署与 PM2 守护脚本"
 echo "========================================"
 echo
 
 # 1. 自动检测环境与获取当前目录
-CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://github.com/4kercc/antigravity2api-nodejs.git"
+TARGET_DIR="antigravity2api-nodejs"
 APP_NAME="antigravity2api"
 
-echo "[1/7] 确认当前项目路径: ${CURRENT_DIR}"
-cd "${CURRENT_DIR}" || exit 1
-
-# 自动为指纹二进制分配执行权限
-if [ -d "src/bin" ]; then
-    chmod +x src/bin/fingerprint_* 2>/dev/null || true
-fi
-
 # 2. 自动检测与安装系统基础依赖 (curl, git)
-echo
-echo "[2/7] 检查系统基础依赖 (curl, git)..."
+echo "[1/8] 检查系统基础依赖 (curl, git)..."
 if ! command -v curl &> /dev/null || ! command -v git &> /dev/null; then
     echo "正在安装基础系统依赖..."
     if command -v apt-get &> /dev/null; then
@@ -33,9 +25,32 @@ if ! command -v curl &> /dev/null || ! command -v git &> /dev/null; then
     fi
 fi
 
-# 3. 自动检测与安装 Node.js (如缺失，自动安装 Node.js LTS)
+# 3. 自动克隆或进入项目目录
 echo
-echo "[3/7] 检查 Node.js 环境..."
+echo "[2/8] 获取项目代码..."
+if [ -f "package.json" ] && grep -q "antigravity" package.json 2>/dev/null; then
+    echo "✓ 当前已在项目目录中，准备开始配置..."
+elif [ -d "$TARGET_DIR" ]; then
+    echo "发现已存在 ${TARGET_DIR} 目录，进入该目录..."
+    cd "$TARGET_DIR" || exit 1
+else
+    echo "正在从 GitHub 克隆项目代码: ${REPO_URL}..."
+    git clone "$REPO_URL" "$TARGET_DIR"
+    if [ $? -ne 0 ]; then
+        echo "❌ 项目克隆失败，请检查网络或 Git 配置"
+        exit 1
+    fi
+    cd "$TARGET_DIR" || exit 1
+fi
+
+# 自动为指纹二进制分配执行权限
+if [ -d "src/bin" ]; then
+    chmod +x src/bin/fingerprint_* 2>/dev/null || true
+fi
+
+# 4. 自动检测与安装 Node.js (如缺失，自动安装 Node.js LTS)
+echo
+echo "[3/8] 检查 Node.js 环境..."
 if ! command -v node &> /dev/null; then
     echo "⚠️ 未检测到 Node.js，正在自动为您安装 Node.js LTS (v20)..."
     if command -v apt-get &> /dev/null; then
@@ -53,16 +68,16 @@ fi
 NODE_VER=$(node -v)
 echo "✓ Node.js 环境正常: ${NODE_VER}"
 
-# 4. 安装 Node.js 项目依赖
+# 5. 安装 Node.js 项目依赖
 echo
-echo "[4/7] 安装项目 NPM 依赖..."
+echo "[4/8] 安装项目 NPM 依赖..."
 npm install
 if [ $? -ne 0 ]; then
     echo "❌ NPM 依赖安装失败，请检查网络或源配置。"
     exit 1
 fi
 
-# 5. 自动创建并配置文件
+# 6. 自动创建并配置文件
 if [ ! -f ".env" ]; then
     if [ -f ".env.example" ]; then
         cp .env.example .env
@@ -72,7 +87,7 @@ if [ ! -f ".env" ]; then
 fi
 
 echo
-echo "[5/7] 配置管理员信息与凭据..."
+echo "[5/8] 配置管理员信息与凭据..."
 read -p "请输入管理员用户名 (默认: admin): " ADMIN_USER
 ADMIN_USER=${ADMIN_USER:-admin}
 
@@ -100,9 +115,9 @@ else
     echo "JWT_SECRET=$RANDOM_JWT_SECRET" >> .env
 fi
 
-# 6. 检测并自动全局安装 PM2
+# 7. 检测并自动全局安装 PM2
 echo
-echo "[6/7] 检查并安装 PM2 进程管理器..."
+echo "[6/8] 检查并安装 PM2 进程管理器..."
 if ! command -v pm2 &> /dev/null; then
     echo "正在全局安装 PM2..."
     npm install -g pm2
@@ -114,9 +129,9 @@ else
     echo "✓ PM2 已安装"
 fi
 
-# 7. 加入 PM2 服务与开机自启动
+# 8. 加入 PM2 服务与开机自启动
 echo
-echo "[7/7] 启动 PM2 进程守护并配置自启动..."
+echo "[7/8] 启动 PM2 进程守护并配置自启动..."
 if pm2 describe "$APP_NAME" > /dev/null 2>&1; then
     echo "重置并重启已有的 PM2 实例: ${APP_NAME}..."
     pm2 restart "$APP_NAME"
