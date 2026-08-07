@@ -502,6 +502,7 @@
                                 <select class="settings-section-select" id="settingsSectionSelect"
                                     onchange="setActiveSettingSection(this.value, true)">
                                     <option value="section-server">🖥️ 服务器</option>
+                                    <option value="section-ssl">🔒 域名与证书</option>
                                     <option value="section-model">🎛️ 模型参数</option>
                                     <option value="section-rotation">🔄 轮询与性能</option>
                                     <option value="section-security">🛡️ 安全管理</option>
@@ -509,6 +510,8 @@
                                 <div class="settings-nav-list">
                                     <button type="button" class="settings-nav-item" data-target="section-server"
                                         onclick="setActiveSettingSection('section-server', true)">🖥️ 服务器</button>
+                                    <button type="button" class="settings-nav-item" data-target="section-ssl"
+                                        onclick="setActiveSettingSection('section-ssl', true)">🔒 域名与证书</button>
                                     <button type="button" class="settings-nav-item" data-target="section-model"
                                         onclick="setActiveSettingSection('section-model', true)">🎛️ 模型参数</button>
                                     <button type="button" class="settings-nav-item" data-target="section-rotation"
@@ -530,6 +533,10 @@
                                             <div class="form-group compact">
                                                 <label>监听地址</label>
                                                 <input type="text" name="HOST" placeholder="0.0.0.0">
+                                            </div>
+                                            <div class="form-group compact">
+                                                <label>绑定域名 <span class="help-tip" data-tooltip="绑定的域名（留空为自签 IP 证书）">?</span></label>
+                                                <input type="text" name="DOMAIN" placeholder="example.com">
                                             </div>
                                         </div>
                                         <div class="form-group compact">
@@ -572,6 +579,57 @@
                                         <div class="form-group compact">
                                             <label>代理地址</label>
                                             <input type="text" name="PROXY" placeholder="http://127.0.0.1:7890">
+                                        </div>
+                                    </div>
+
+                                    <!-- 域名与 SSL 证书配置 -->
+                                    <div class="config-section" id="section-ssl">
+                                        <h4>🔒 域名与 SSL 证书管理</h4>
+                                        <div class="form-group compact">
+                                            <label>绑定域名 <span class="help-tip" data-tooltip="留空将使用自签 IP 证书">?</span></label>
+                                            <div style="display: flex; gap: 8px;">
+                                                <input type="text" id="sslDomainInput" placeholder="example.com (留空为自签 IP)">
+                                                <button type="button" class="btn btn-primary btn-sm" onclick="saveSSLDomain()">保存域名并签发</button>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 证书状态卡片 -->
+                                        <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                                <strong style="font-size: 0.95rem;">证书状态信息</strong>
+                                                <button type="button" class="btn btn-info btn-sm" onclick="loadSSLCertInfo()">刷新状态</button>
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">
+                                                <div>当前绑定: <span id="sslStatusDomain" style="font-weight: bold; color: var(--primary);">加载中...</span></div>
+                                                <div>证书类型: <span id="sslStatusType" style="font-weight: bold;">-</span></div>
+                                                <div>到期时间: <span id="sslStatusValidTo">-</span></div>
+                                                <div>剩余天数: <span id="sslStatusDays" style="font-weight: bold; color: #10b981;">-</span></div>
+                                            </div>
+                                            <div class="form-group compact switch-group" style="margin-top: 10px; margin-bottom: 0; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
+                                                <label>自动更新证书 (到期前30天自动续期)</label>
+                                                <label class="switch">
+                                                    <input type="checkbox" id="sslAutoRenewCheckbox" onchange="toggleSSLAutoRenew(this.checked)">
+                                                    <span class="slider"></span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                                            <button type="button" class="btn btn-warning btn-sm" onclick="renewSSLCert()">一键手动续期 / 重新签发</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleCustomCertEditor()">编辑/粘贴 SSL 证书文件</button>
+                                        </div>
+
+                                        <!-- 自定义证书编辑器 -->
+                                        <div id="customCertEditor" style="display: none; border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 12px;">
+                                            <div class="form-group compact">
+                                                <label>证书文件内容 (CRT / PEM)</label>
+                                                <textarea id="customCertInput" rows="5" style="font-family: monospace; font-size: 0.8rem;" placeholder="-----BEGIN CERTIFICATE----- ..."></textarea>
+                                            </div>
+                                            <div class="form-group compact">
+                                                <label>私钥文件内容 (KEY)</label>
+                                                <textarea id="customKeyInput" rows="5" style="font-family: monospace; font-size: 0.8rem;" placeholder="-----BEGIN PRIVATE KEY----- ..."></textarea>
+                                            </div>
+                                            <button type="button" class="btn btn-success btn-sm" onclick="saveCustomCert()">保存自定义证书并加载</button>
                                         </div>
                                     </div>
 

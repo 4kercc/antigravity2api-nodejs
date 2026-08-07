@@ -14,6 +14,8 @@ import { getModelsWithQuotas } from '../api/client.js';
 import { getEnvPath } from '../utils/paths.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
+import { getCertificateInfo, verifyDomainDNS, issueAcmeCert, generateSelfSignedCert, updateCustomCert, saveCertMeta } from '../utils/sslManager.js';
+import { server } from '../server/index.js';
 import dotenv from 'dotenv';
 
 const envPath = getEnvPath();
@@ -1243,6 +1245,112 @@ router.get('/tokens/:tokenId/quotas', cookieAuthMiddleware, async (req, res) => 
     });
   } catch (error) {
     logger.error('获取额度失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ==================== 域名与 SSL 证书管理 API ====================
+
+// 获取证书及域名信息
+router.get('/certificate', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const certInfo = getCertificateInfo();
+    const currentConfig = getConfigJson();
+    res.json({
+      success: true,
+      data: {
+        ...certInfo,
+        serverDomain: currentConfig.server?.domain || certInfo.domain || '',
+        autoRenewCert: currentConfig.server?.autoRenewCert !== false && certInfo.autoRenew !== false,
+        port: currentConfig.server?.port || 443
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 更新/编辑域名配置并更新/重新签发证书
+router.put('/certificate/domain', cookieAuthMiddleware, async (req, res) => {
+  const { domain } = req.body;
+  const cleanDomain = (domain || '').trim();
+
+  try {
+    const currentConfig = getConfigJson();
+    if (!cleanDomain) {
+      // 留空即切换为自签 IP 证书模式
+      await generateSelfSignedCert('127.0.0.1');
+      saveConfigJson({ server: { ...currentConfig.server, domain: '' } });
+      if (server && server.reloadSSLContext) server.reloadSSLContext();
+      return res.json({ success: true, message: '已切换为自签 IP 证书模式' });
+    }
+
+    // 校验域名 DNS 解析
+    const dnsCheck = await verifyDomainDNS(cleanDomain);
+    if (!dnsCheck.valid) {
+      return res.status(400).json({ success: false, message: `域名解析验证失败: ${dnsCheck.reason}` });
+    }
+
+    // 调用 acme 签发证书
+    await issueAcmeCert(cleanDomain);
+    saveConfigJson({ server: { ...currentConfig.server, domain: cleanDomain } });
+    if (server && server.reloadSSLContext) server.reloadSSLContext();
+
+    res.json({ success: true, message: `域名 ${cleanDomain} 证书已成功签发并配置！` });
+  } catch (error) {
+    logger.error('修改域名/签发证书失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 切换“自动更新证书”开关
+router.put('/certificate/auto-renew', cookieAuthMiddleware, async (req, res) => {
+  const { autoRenew } = req.body;
+  const isEnabled = autoRenew === true;
+
+  try {
+    saveCertMeta({ autoRenew: isEnabled });
+    const currentConfig = getConfigJson();
+    saveConfigJson({ server: { ...currentConfig.server, autoRenewCert: isEnabled } });
+
+    res.json({ success: true, message: `已${isEnabled ? '开启' : '关闭'}证书自动更新` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 手动贴入/编辑 SSL 证书内容 (.crt 和 .key)
+router.put('/certificate/custom', cookieAuthMiddleware, async (req, res) => {
+  const { cert, key, domain } = req.body;
+  if (!cert || !key) {
+    return res.status(400).json({ success: false, message: '证书 (CRT) 和私钥 (KEY) 内容均不能为空' });
+  }
+
+  try {
+    updateCustomCert(cert, key, domain || '');
+    if (server && server.reloadSSLContext) server.reloadSSLContext();
+    res.json({ success: true, message: '自定义 SSL 证书及私钥更新成功！' });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// 手动触发一键证书续期 / 重新签发
+router.post('/certificate/renew', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const certInfo = getCertificateInfo();
+    const currentConfig = getConfigJson();
+    const targetDomain = currentConfig.server?.domain || certInfo.domain;
+
+    if (!targetDomain || certInfo.type === 'self-signed') {
+      return res.status(400).json({ success: false, message: '当前使用自签 IP 证书，无需续期。若要绑定域名请先设置域名。' });
+    }
+
+    await issueAcmeCert(targetDomain);
+    if (server && server.reloadSSLContext) server.reloadSSLContext();
+
+    res.json({ success: true, message: `域名 ${targetDomain} 的 SSL 证书手动续期/重新签发成功！` });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });

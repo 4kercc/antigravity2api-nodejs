@@ -4,6 +4,10 @@
  */
 
 import express from 'express';
+import http from 'http';
+import https from 'https';
+import tls from 'tls';
+import fs from 'fs';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -17,6 +21,7 @@ import { errorHandler } from '../utils/errors.js';
 import { getChunkPoolSize, clearChunkPool } from './stream.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
+import { certsExist, getCertPaths, generateSelfSignedCert, getCertificateInfo, issueAcmeCert } from '../utils/sslManager.js';
 
 // 路由模块
 import adminRouter from '../routes/admin.js';
@@ -201,8 +206,74 @@ app.use((req, res, next) => {
 });
 
 // ==================== 服务器启动 ====================
-const server = app.listen(config.server.port, config.server.host, () => {
-  logger.info(`服务器已启动: ${config.server.host}:${config.server.port}`);
+let server;
+const certPaths = getCertPaths();
+
+// 自动生成或检查证书
+if (!certsExist()) {
+  try {
+    generateSelfSignedCert('127.0.0.1');
+  } catch (err) {
+    logger.warn('默认自签证书生成失败，系统将尝试备用 HTTP 模式或提示处理:', err.message);
+  }
+}
+
+const useSSL = config.server.ssl !== false && certsExist();
+
+if (useSSL) {
+  try {
+    const sslOptions = {
+      cert: fs.readFileSync(certPaths.certPath),
+      key: fs.readFileSync(certPaths.keyPath)
+    };
+    server = https.createServer(sslOptions, app);
+
+    // 暴露热重载 SSL 上下文函数
+    server.reloadSSLContext = () => {
+      try {
+        const newContext = tls.createSecureContext({
+          cert: fs.readFileSync(certPaths.certPath),
+          key: fs.readFileSync(certPaths.keyPath)
+        });
+        server.setSecureContext(newContext);
+        logger.info('HTTPS SSL 证书上下文已成功热重载');
+      } catch (e) {
+        logger.error('HTTPS SSL 证书上下文热重载失败:', e.message);
+      }
+    };
+
+    logger.info('已开启 HTTPS 原生加密安全传输');
+  } catch (err) {
+    logger.error('加载 SSL 证书失败，降级为 HTTP 模式:', err.message);
+    server = http.createServer(app);
+  }
+} else {
+  server = http.createServer(app);
+}
+
+// 定时任务：证书自动更新检查（每天检查一次）
+const certCheckInterval = 24 * 60 * 60 * 1000;
+setInterval(async () => {
+  try {
+    const certInfo = getCertificateInfo();
+    if (certInfo.exists && certInfo.autoRenew && certInfo.type === 'acme' && certInfo.daysRemaining <= 30 && certInfo.domain) {
+      logger.info(`证书到期剩余 ${certInfo.daysRemaining} 天，触发 acme.sh 自动续期...`);
+      await issueAcmeCert(certInfo.domain);
+      if (server && server.reloadSSLContext) {
+        server.reloadSSLContext();
+      }
+    }
+  } catch (err) {
+    logger.error('定时自动续期证书失败:', err.message);
+  }
+}, certCheckInterval);
+
+// 导出 server 实例供管理路由重载 SSL 使用
+export { server };
+
+server.listen(config.server.port, config.server.host, () => {
+  const protocol = useSSL ? 'https' : 'http';
+  logger.info(`服务器已启动 (${protocol.toUpperCase()}): ${protocol}://${config.server.host}:${config.server.port}`);
 
   // 启动时检查版本更新
   checkAndUpdateVersion();

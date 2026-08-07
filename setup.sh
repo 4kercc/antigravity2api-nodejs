@@ -10,18 +10,18 @@ REPO_URL="https://github.com/4kercc/antigravity2api-nodejs.git"
 TARGET_DIR="antigravity2api-nodejs"
 APP_NAME="antigravity2api"
 
-# 2. 自动检测与安装系统基础依赖 (curl, git)
-echo "[1/8] 检查系统基础依赖 (curl, git)..."
-if ! command -v curl &> /dev/null || ! command -v git &> /dev/null; then
+# 2. 自动检测与安装系统基础依赖 (curl, git, openssl, bind-utils/dnsutils)
+echo "[1/8] 检查系统基础依赖 (curl, git, openssl, dig)..."
+if ! command -v curl &> /dev/null || ! command -v git &> /dev/null || ! command -v openssl &> /dev/null || ! command -v dig &> /dev/null; then
     echo "正在安装基础系统依赖..."
     if command -v apt-get &> /dev/null; then
-        sudo apt-get update -y && sudo apt-get install -y curl git
+        sudo apt-get update -y && sudo apt-get install -y curl git openssl dnsutils
     elif command -v yum &> /dev/null; then
-        sudo yum install -y curl git
+        sudo yum install -y curl git openssl bind-utils
     elif command -v dnf &> /dev/null; then
-        sudo dnf install -y curl git
+        sudo dnf install -y curl git openssl bind-utils
     elif command -v apk &> /dev/null; then
-        sudo apk add curl git
+        sudo apk add curl git openssl bind-tools
     fi
 fi
 
@@ -81,7 +81,118 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 6. 自动创建并配置文件
+# 6. 自动创建并配置文件及 HTTPS SSL 域名处理
+echo
+echo "[5/8] 配置管理员信息、凭据与 HTTPS 域名..."
+
+SERVER_PUBLIC_IP=$(curl -s --connect-timeout 3 https://api.ipify.org || curl -s --connect-timeout 3 https://ifconfig.me || curl -s --connect-timeout 3 https://ipinfo.io/ip || echo "")
+
+read -p "请输入要绑定的域名 (如果为空，默认为自签 IP 证书): " DOMAIN_INPUT
+DOMAIN_INPUT=$(echo "$DOMAIN_INPUT" | tr -d ' ')
+
+CERTS_DIR="${PROJECT_ABS_PATH}/data/certs"
+mkdir -p "${CERTS_DIR}"
+
+if [ -z "$DOMAIN_INPUT" ]; then
+    echo "💡 未输入域名，自动为公网 IP (${SERVER_PUBLIC_IP:-127.0.0.1}) 生成自签 IP 证书..."
+    TARGET_IP="${SERVER_PUBLIC_IP:-127.0.0.1}"
+    
+    # 动态生成 openssl 自签证书
+    cat <<EOF > "${CERTS_DIR}/openssl_tmp.cnf"
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+[req_distinguished_name]
+C = CN
+ST = State
+L = City
+O = Antigravity
+CN = ${TARGET_IP}
+[v3_req]
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = IP:${TARGET_IP}
+EOF
+
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout "${CERTS_DIR}/server.key" -out "${CERTS_DIR}/server.crt" -config "${CERTS_DIR}/openssl_tmp.cnf" >/dev/null 2>&1
+    rm -f "${CERTS_DIR}/openssl_tmp.cnf"
+
+    cat <<EOF > "${CERTS_DIR}/cert_info.json"
+{
+  "domain": "${TARGET_IP}",
+  "type": "self-signed",
+  "autoRenew": false,
+  "updatedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+    echo "✓ 已生成自签 IP 证书 (${CERTS_DIR}/server.crt, ${CERTS_DIR}/server.key)"
+else
+    echo "🔍 检查域名 ${DOMAIN_INPUT} 的 DNS 解析..."
+    DOMAIN_RESOLVED_IPS=$(dig +short "$DOMAIN_INPUT" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+    
+    IS_MATCH=0
+    if [ -n "$SERVER_PUBLIC_IP" ] && [ -n "$DOMAIN_RESOLVED_IPS" ]; then
+        for ip in $DOMAIN_RESOLVED_IPS; do
+            if [ "$ip" = "$SERVER_PUBLIC_IP" ]; then
+                IS_MATCH=1
+                break
+            fi
+        done
+    fi
+
+    if [ "$IS_MATCH" -eq 0 ]; then
+        echo "❌ 错误: 域名 ${DOMAIN_INPUT} 未正确解析到当前服务器公网 IP (${SERVER_PUBLIC_IP:-未检测到})！"
+        echo "   域名解析结果: ${DOMAIN_RESOLVED_IPS:-解析失败/无响应}"
+        echo "   请先去域名 DNS 控制台将 A 记录指向 ${SERVER_PUBLIC_IP} 后重新运行脚本。"
+        exit 1
+    fi
+
+    echo "✓ 域名 DNS 校验通过！已解析到当前服务器 IP: ${SERVER_PUBLIC_IP}"
+    echo "🔐 开始使用 acme.sh 签发官方 SSL 证书..."
+
+    # 检查并安装 acme.sh
+    if [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
+        echo "正在安装 acme.sh 证书自动化工具..."
+        curl https://get.acme.sh | sh -s email=admin@${DOMAIN_INPUT} >/dev/null 2>&1
+    fi
+    ACME_BIN="$HOME/.acme.sh/acme.sh"
+
+    # 申请并安装证书
+    "$ACME_BIN" --issue -d "$DOMAIN_INPUT" --standalone --httpport 80 --force
+    if [ $? -ne 0 ]; then
+        echo "❌ 证书签发失败！请检查 80 端口是否被占用或防火墙设置。"
+        exit 1
+    fi
+
+    "$ACME_BIN" --install-cert -d "$DOMAIN_INPUT" \
+        --key-file "${CERTS_DIR}/server.key" \
+        --fullchain-file "${CERTS_DIR}/server.crt"
+
+    cat <<EOF > "${CERTS_DIR}/cert_info.json"
+{
+  "domain": "${DOMAIN_INPUT}",
+  "type": "acme",
+  "autoRenew": true,
+  "updatedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+    echo "🎉 SSL 证书已成功签发并安装！"
+
+    # 将域名更新写入 config.json
+    if [ -f "config.json" ]; then
+        node -e "
+            const fs = require('fs');
+            try {
+                const conf = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+                conf.server = conf.server || {};
+                conf.server.domain = '$DOMAIN_INPUT';
+                fs.writeFileSync('config.json', JSON.stringify(conf, null, 2), 'utf8');
+            } catch (e) {}
+        "
+    fi
+fi
+
 if [ ! -f ".env" ]; then
     if [ -f ".env.example" ]; then
         cp .env.example .env
@@ -89,9 +200,6 @@ if [ ! -f ".env" ]; then
         touch .env
     fi
 fi
-
-echo
-echo "[5/8] 配置管理员信息与凭据..."
 read -p "请输入管理员用户名 (默认: admin): " ADMIN_USER
 ADMIN_USER=${ADMIN_USER:-admin}
 
@@ -145,12 +253,13 @@ pm2 start "${PROJECT_ABS_PATH}/src/server/index.js" --name "$APP_NAME" --cwd "${
 pm2 save
 pm2 startup 2>/dev/null || echo "💡 提示: 请复制下方系统提示的命令以完成开机自启安装"
 
-# 动态获取服务器公网 IP (带有超时和多服务兜底)
-SERVER_PUBLIC_IP=$(curl -s --connect-timeout 3 https://api.ipify.org || curl -s --connect-timeout 3 https://ifconfig.me || curl -s --connect-timeout 3 https://ipinfo.io/ip || echo "")
-if [ -n "$SERVER_PUBLIC_IP" ]; then
-    PUBLIC_URL="http://${SERVER_PUBLIC_IP}:8045"
+# 动态构建 HTTPS 访问地址
+if [ -n "$DOMAIN_INPUT" ]; then
+    PUBLIC_URL="https://${DOMAIN_INPUT}"
+elif [ -n "$SERVER_PUBLIC_IP" ]; then
+    PUBLIC_URL="https://${SERVER_PUBLIC_IP}"
 else
-    PUBLIC_URL="http://您的服务器IP:8045"
+    PUBLIC_URL="https://您的服务器IP"
 fi
 
 echo
@@ -161,9 +270,9 @@ echo
 echo "📂 项目安装路径："
 echo "   - 绝对路径: ${PROJECT_ABS_PATH}"
 echo
-echo "🌐 服务访问信息："
+echo "🌐 服务访问信息 (全站强制 443 HTTPS 端口)："
 echo "   - 公网管理后台: ${PUBLIC_URL}"
-echo "   - 本地管理后台: http://127.0.0.1:8045"
+echo "   - 本地管理后台: https://127.0.0.1"
 echo "   - 管理员账号:   $ADMIN_USER"
 echo "   - 管理员密码:   $ADMIN_PASS"
 echo "   - 初始 API 密钥: $FINAL_API_KEY"
