@@ -766,9 +766,9 @@ router.get('/api-keys', cookieAuthMiddleware, (req, res) => {
 // 创建 API Key
 router.post('/api-keys', cookieAuthMiddleware, (req, res) => {
   try {
-    const { name, key } = req.body;
-    const newKey = apiKeyManager.createKey({ name, key });
-    logger.info(`创建新 API 密钥: ${newKey.name} (${newKey.id})`);
+    const { name, key, maxTokens } = req.body;
+    const newKey = apiKeyManager.createKey({ name, key, maxTokens });
+    logger.info(`创建新 API 密钥: ${newKey.name} (${newKey.id}), maxTokens=${newKey.maxTokens || '无限制'}`);
     res.json({ success: true, data: newKey, message: '创建 API 密钥成功' });
   } catch (error) {
     logger.error('创建 API 密钥失败:', error.message);
@@ -776,16 +776,16 @@ router.post('/api-keys', cookieAuthMiddleware, (req, res) => {
   }
 });
 
-// 更新 API Key (修改名称 / 启用状态 / 密钥文本)
+// 更新 API Key (修改名称 / 启用状态 / 密钥文本 / Max Tokens)
 router.put('/api-keys/:id', cookieAuthMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    const { name, enabled, key } = req.body;
-    const updated = apiKeyManager.updateKey(id, { name, enabled, key });
+    const { name, enabled, key, maxTokens } = req.body;
+    const updated = apiKeyManager.updateKey(id, { name, enabled, key, maxTokens });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'API 密钥不存在' });
     }
-    logger.info(`更新 API 密钥 (${id}): ${updated.name}, enabled=${updated.enabled}`);
+    logger.info(`更新 API 密钥 (${id}): ${updated.name}, enabled=${updated.enabled}, maxTokens=${updated.maxTokens || '无限制'}`);
     res.json({ success: true, data: updated, message: '更新成功' });
   } catch (error) {
     logger.error('更新 API 密钥失败:', error.message);
