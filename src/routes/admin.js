@@ -15,6 +15,7 @@ import { getEnvPath } from '../utils/paths.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
 import { getCertificateInfo, verifyDomainDNS, issueAcmeCert, generateSelfSignedCert, updateCustomCert, saveCertMeta } from '../utils/sslManager.js';
+import { get2FAConfig, save2FAConfig, generateSecret, generateTOTP, verifyTOTP, generateBackupCodes, consumeBackupCode } from '../utils/totpManager.js';
 import { server } from '../server/index.js';
 import dotenv from 'dotenv';
 
@@ -107,6 +108,14 @@ router.post('/login', async (req, res) => {
   }
 
   if (username === config.admin.username && password === config.admin.password) {
+    const twoFactorConfig = get2FAConfig();
+    if (twoFactorConfig.enabled && twoFactorConfig.secret) {
+      // 启用了 2FA，不直接签发完整 authToken，需要第二步输入 2FA 动态码
+      const tempToken = generateToken({ username, stage: '2fa_pending' });
+      logger.info(`🔐 管理员密码凭据通过 [IP: ${clientIP}]，等待 2FA 动态口令二次验证...`);
+      return res.json({ success: true, require2FA: true, tempToken });
+    }
+
     const token = generateToken({ username, role: 'admin' });
 
     // 设置 HttpOnly Cookie
@@ -125,6 +134,144 @@ router.post('/login', async (req, res) => {
     logger.warn(`❌ 管理员登录失败 [IP: ${clientIP}] (尝试用户: ${username})`);
     res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
+});
+
+// 2FA 二次验证登录接口
+router.post('/login/verify-2fa', async (req, res) => {
+  const clientIP = getClientIP(req);
+  const { tempToken, code } = req.body;
+
+  if (!tempToken || !code) {
+    return res.status(400).json({ success: false, message: '临时凭证和验证码必填' });
+  }
+
+  try {
+    const decoded = verifyToken(tempToken);
+    if (!decoded || decoded.stage !== '2fa_pending') {
+      return res.status(401).json({ success: false, message: '无效或已过期的登录凭证' });
+    }
+
+    const twoFactorConfig = get2FAConfig();
+    if (!twoFactorConfig.enabled || !twoFactorConfig.secret) {
+      return res.status(400).json({ success: false, message: '系统未开启 2FA 双因素验证' });
+    }
+
+    // 校验 TOTP 6位动态验证码
+    let valid = verifyTOTP(code, twoFactorConfig.secret);
+
+    // 若动态码校验未通过，尝试备用恢复码
+    if (!valid && consumeBackupCode(code)) {
+      valid = true;
+    }
+
+    if (!valid) {
+      await ipBlockManager.recordViolation(clientIP, 'admin_2fa_fail');
+      logger.warn(`❌ 2FA 二次验证失败 [IP: ${clientIP}]`);
+      return res.status(401).json({ success: false, message: '验证码或备用恢复码无效' });
+    }
+
+    // 验证通过，正式签发 JWT Token 并写 Cookie
+    const token = generateToken({ username: decoded.username, role: 'admin' });
+    res.cookie('authToken', token, {
+      ...COOKIE_OPTIONS,
+      secure: req.secure || process.env.NODE_ENV === 'production'
+    });
+
+    logger.info(`🔐 2FA 二次验证通过，管理员登录成功 [IP: ${clientIP}]`);
+    res.json({ success: true, token });
+  } catch (error) {
+    logger.error('2FA 验证登录异常:', error.message);
+    res.status(401).json({ success: false, message: '验证失败: ' + error.message });
+  }
+});
+
+// ==================== 2FA 管理 API ====================
+
+// 获取当前 2FA 开启状态
+router.get('/2fa/status', cookieAuthMiddleware, (req, res) => {
+  const cfg = get2FAConfig();
+  res.json({
+    success: true,
+    data: {
+      enabled: cfg.enabled === true,
+      hasBackupCodes: Array.isArray(cfg.backupCodes) && cfg.backupCodes.length > 0,
+      remainingBackupCodes: Array.isArray(cfg.backupCodes) ? cfg.backupCodes.length : 0
+    }
+  });
+});
+
+// 生成全新的 2FA 绑定密钥
+router.post('/2fa/setup', cookieAuthMiddleware, (req, res) => {
+  try {
+    const secret = generateSecret();
+    const appName = 'Antigravity2API';
+    const username = config.admin.username || 'admin';
+    const otpauthUrl = `otpauth://totp/${encodeURIComponent(appName)}:${encodeURIComponent(username)}?secret=${secret}&issuer=${encodeURIComponent(appName)}`;
+
+    res.json({
+      success: true,
+      data: {
+        secret,
+        otpauthUrl
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 校验 6 位动态验证码并确认开启 2FA
+router.post('/2fa/verify-enable', cookieAuthMiddleware, (req, res) => {
+  const { secret, code } = req.body;
+  if (!secret || !code) {
+    return res.status(400).json({ success: false, message: '密钥和验证码必填' });
+  }
+
+  const valid = verifyTOTP(code, secret);
+  if (!valid) {
+    return res.status(400).json({ success: false, message: '验证码错误，请确保时间同步后重试' });
+  }
+
+  // 生成备用恢复码
+  const backupCodes = generateBackupCodes();
+  save2FAConfig({
+    enabled: true,
+    secret,
+    backupCodes
+  });
+
+  logger.info('🔐 管理员成功启用双因素身份验证 (2FA)');
+  res.json({
+    success: true,
+    message: '2FA 双因素身份验证开启成功！',
+    data: { backupCodes }
+  });
+});
+
+// 解绑/关闭 2FA 身份验证
+router.post('/2fa/disable', cookieAuthMiddleware, (req, res) => {
+  const { password, code } = req.body;
+
+  if (!password || !verifyPassword(password)) {
+    return res.status(403).json({ success: false, message: '管理员密码验证失败' });
+  }
+
+  const currentCfg = get2FAConfig();
+  if (currentCfg.enabled && code) {
+    const valid = verifyTOTP(code, currentCfg.secret) || consumeBackupCode(code);
+    if (!valid) {
+      return res.status(400).json({ success: false, message: '2FA 动态验证码错误' });
+    }
+  }
+
+  save2FAConfig({
+    enabled: false,
+    secret: null,
+    backupCodes: []
+  });
+
+  logger.info('🔓 管理员已关闭双因素身份验证 (2FA)');
+  res.json({ success: true, message: '已安全关闭 2FA 双因素身份验证' });
 });
 
 // 登出接口

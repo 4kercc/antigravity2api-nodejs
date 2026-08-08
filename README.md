@@ -7,6 +7,8 @@
 | 特性 | 说明 |
 | :--- | :--- |
 | 🔒 **全站原生 HTTPS & ACME 证书** | 默认支持 443 端口加密传输，集成 acme.sh 自动化签发与到期无感热重载，支持 DNS 解析校验与 IP 自签证书兜底 |
+| 🔑 **2FA 双因素身份验证** | 支持使用 Google Authenticator 等动态口令 App 绑定 2FA，提供 10 个一次性备用恢复码防丢防护 |
+| 🎛️ **CLI 功能开关控制** | 可在设置中开启或关闭 Gemini CLI (/cli/*) API 反代功能，关闭后自动隐藏 CLI 页面标签 |
 | 🎯 **API 密钥 Token 消耗上限** | 支持为单个 API Key 设置最大 Token 消耗限制（如设置 1 亿 Token 阈值），用完后自动禁用防止超量使用 |
 | 🔑 **多 API 密钥管理** | 支持创建、编辑、开启/禁用、删除多个 API Key，且每个 Key 独立记录请求数与 Token 使用明细 |
 | 📊 **Token 消费统计** | 提供基于 API Key 维度的 Input / Output / Total Token 使用量实时仪表盘统计与百分比显示 |

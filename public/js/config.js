@@ -151,6 +151,13 @@ async function loadConfig() {
                 if (form.elements['RETRY_POLL_TOKEN_WITH_QUOTA']) form.elements['RETRY_POLL_TOKEN_WITH_QUOTA'].checked = json.other.retryPollTokenWithQuota || false;
                 if (form.elements['SKIP_PROJECT_ID_FETCH']) form.elements['SKIP_PROJECT_ID_FETCH'].checked = json.other.skipProjectIdFetch || false;
                 if (form.elements['USE_NATIVE_AXIOS']) form.elements['USE_NATIVE_AXIOS'].checked = json.other.useNativeAxios !== false;
+                
+                const cliEnabled = json.geminicli?.enabled !== false;
+                if (form.elements['GEMINICLI_ENABLED']) form.elements['GEMINICLI_ENABLED'].checked = cliEnabled;
+                if (typeof updateGeminiCliTabVisibility === 'function') {
+                    updateGeminiCliTabVisibility(cliEnabled);
+                }
+
                 if (form.elements['USE_CONTEXT_SYSTEM_PROMPT']) form.elements['USE_CONTEXT_SYSTEM_PROMPT'].checked = json.other.useContextSystemPrompt || false;
                 if (form.elements['MERGE_SYSTEM_PROMPT']) form.elements['MERGE_SYSTEM_PROMPT'].checked = json.other.mergeSystemPrompt !== false;
                 if (form.elements['OFFICIAL_PROMPT_POSITION']) form.elements['OFFICIAL_PROMPT_POSITION'].value = json.other.officialPromptPosition || 'before';
@@ -209,6 +216,10 @@ async function loadConfig() {
             // 加载白名单
             if (typeof loadWhitelistIPs === 'function') {
                 loadWhitelistIPs();
+            }
+            // 加载 2FA 状态
+            if (typeof load2FAStatus === 'function') {
+                load2FAStatus();
             }
         }
     } catch (error) {
@@ -300,10 +311,12 @@ async function saveConfig(e) {
         api: {},
         defaults: {},
         other: {},
-        rotation: {}
+        rotation: {},
+        geminicli: {}
     };
 
     // 处理checkbox：未选中的checkbox不会出现在FormData中
+    jsonConfig.geminicli.enabled = form.elements['GEMINICLI_ENABLED']?.checked !== false;
     jsonConfig.other.skipProjectIdFetch = form.elements['SKIP_PROJECT_ID_FETCH']?.checked || false;
     jsonConfig.other.useNativeAxios = form.elements['USE_NATIVE_AXIOS']?.checked || false;
     jsonConfig.api = { use: form.elements['API_USE']?.value || 'sandbox' };

@@ -151,3 +151,207 @@ function removeWhitelistIP(ip) {
   renderWhitelistIPs(tempWhitelistIPs);
   //showToast('已移除，请点击保存配置按钮保存', 'info');
 }
+
+// ---------------- 2FA 双因素身份验证管理 ----------------
+
+async function load2FAStatus() {
+  try {
+    const res = await authFetch('/admin/2fa/status');
+    const data = await res.json();
+    if (data.success) {
+      const { enabled, remainingBackupCodes } = data.data;
+      const badge = document.getElementById('twoFactorStatusBadge');
+      const enableBtn = document.getElementById('twoFactorEnableBtn');
+      const disableBtn = document.getElementById('twoFactorDisableBtn');
+      const backupInfo = document.getElementById('twoFactorBackupCodesInfo');
+      const backupCount = document.getElementById('twoFactorBackupCodesCount');
+
+      if (badge) {
+        badge.textContent = enabled ? '已开启' : '未开启';
+        badge.style.color = enabled ? '#10b981' : '#ef4444';
+      }
+      if (enableBtn) enableBtn.style.display = enabled ? 'none' : 'inline-block';
+      if (disableBtn) disableBtn.style.display = enabled ? 'inline-block' : 'none';
+      if (backupInfo && backupCount) {
+        if (enabled) {
+          backupInfo.style.display = 'block';
+          backupCount.textContent = remainingBackupCodes || 0;
+        } else {
+          backupInfo.style.display = 'none';
+        }
+      }
+    }
+  } catch (err) {
+    console.error('获取 2FA 状态失败:', err);
+  }
+}
+
+async function show2FASetupModal() {
+  showLoading('正在生成 2FA 密钥...');
+  try {
+    const res = await authFetch('/admin/2fa/setup', { method: 'POST' });
+    const data = await res.json();
+    hideLoading();
+
+    if (!data.success) {
+      showToast(data.message || '生成 2FA 密钥失败', 'error');
+      return;
+    }
+
+    const { secret } = data.data;
+    const modal = document.createElement('div');
+    modal.className = 'modal form-modal';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 480px;">
+        <div class="modal-title">🔑 绑定 2FA 双因素验证</div>
+        <div style="margin-top: 12px; font-size: 0.88rem; color: var(--text-light, #666); line-height: 1.5;">
+          请使用身份验证器软件（如 <strong>Google Authenticator</strong>、<strong>Microsoft Authenticator</strong> 或 <strong>1Password</strong>）添加以下密钥：
+        </div>
+
+        <div style="background: #f1f5f9; padding: 12px; border-radius: 6px; text-align: center; margin: 12px 0;">
+          <div style="font-size: 0.8rem; color: #64748b;">绑定密钥 (Secret Key)</div>
+          <div style="font-family: monospace; font-size: 1.2rem; font-weight: bold; color: var(--primary, #4f46e5); margin-top: 4px; letter-spacing: 2px;">${secret}</div>
+          <button class="btn btn-sm" onclick="copyToClipboard('${secret}', '2FA 密钥已复制')" style="margin-top: 6px; padding: 2px 8px; font-size: 0.75rem;">📋 复制密钥</button>
+        </div>
+
+        <div class="form-group compact" style="margin-top: 12px;">
+          <label>请输入验证码软件上显示的 6 位动态数字</label>
+          <input type="text" id="verify2FACodeInput" placeholder="例如: 123456" maxlength="6" style="letter-spacing: 4px; font-size: 1.1rem; text-align: center;">
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.5rem;">
+          <button class="btn btn-secondary" id="cancel2FASetupBtn">取消</button>
+          <button class="btn btn-primary" id="confirm2FASetupBtn">验证并开启</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const cancelBtn = modal.querySelector('#cancel2FASetupBtn');
+    const confirmBtn = modal.querySelector('#confirm2FASetupBtn');
+    const inputCode = modal.querySelector('#verify2FACodeInput');
+
+    cancelBtn.addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    confirmBtn.addEventListener('click', async () => {
+      const code = inputCode.value.trim();
+      if (!code || code.length !== 6) {
+        showToast('请输入 6 位有效验证码', 'warning');
+        return;
+      }
+
+      showLoading('正在校验并开启 2FA...');
+      try {
+        const verifyRes = await authFetch('/admin/2fa/verify-enable', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret, code })
+        });
+        const verifyData = await verifyRes.json();
+        hideLoading();
+
+        if (verifyData.success) {
+          modal.remove();
+          showBackupCodesModal(verifyData.data.backupCodes);
+          load2FAStatus();
+        } else {
+          showToast(verifyData.message || '验证码错误，无法开启 2FA', 'error');
+        }
+      } catch (err) {
+        hideLoading();
+        showToast('开启 2FA 失败: ' + err.message, 'error');
+      }
+    });
+
+  } catch (err) {
+    hideLoading();
+    showToast('请求失败: ' + err.message, 'error');
+  }
+}
+
+function showBackupCodesModal(codes) {
+  const modal = document.createElement('div');
+  modal.className = 'modal form-modal';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-title" style="color: #10b981;">🎉 2FA 开启成功！备用恢复码</div>
+      <div style="margin-top: 10px; font-size: 0.85rem; color: #ef4444; font-weight: bold; line-height: 1.5;">
+        ⚠️ 请妥善保存以下备用恢复码！当您丢失手机验证码软件时，可以使用恢复码登录。每个恢复码仅限使用一次。
+      </div>
+
+      <div style="background: #0f172a; color: #38bdf8; padding: 12px; border-radius: 6px; margin: 12px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-family: monospace; font-size: 1rem; text-align: center;">
+        ${codes.map(c => `<div>${c}</div>`).join('')}
+      </div>
+
+      <div style="text-align: center; margin-top: 10px;">
+        <button class="btn btn-sm btn-info" onclick="copyToClipboard('${codes.join('\\n')}', '备用恢复码已复制到剪贴板')">📋 复制全部恢复码</button>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 1.5rem;">
+        <button class="btn btn-primary" onclick="this.closest('.modal').remove()">我已保存并理解</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function show2FADisableModal() {
+  const modal = document.createElement('div');
+  modal.className = 'modal form-modal';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 420px;">
+      <div class="modal-title" style="color: #ef4444;">⚠️ 关闭 2FA 双因素身份验证</div>
+      <div class="form-group compact" style="margin-top: 1rem;">
+        <label>请输入管理员密码</label>
+        <input type="password" id="disable2FAPassword" placeholder="当前管理员密码">
+      </div>
+      <div class="form-group compact" style="margin-top: 0.5rem;">
+        <label>请输入当前 2FA 动态码或备用恢复码</label>
+        <input type="text" id="disable2FACode" placeholder="6 位动态码或 8 位恢复码">
+      </div>
+      <div class="modal-actions" style="margin-top: 1.5rem;">
+        <button class="btn btn-secondary" id="cancelDisable2FABtn">取消</button>
+        <button class="btn btn-danger" id="confirmDisable2FABtn">确认关闭 2FA</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const cancelBtn = modal.querySelector('#cancelDisable2FABtn');
+  const confirmBtn = modal.querySelector('#confirmDisable2FABtn');
+
+  cancelBtn.addEventListener('click', () => modal.remove());
+
+  confirmBtn.addEventListener('click', async () => {
+    const password = document.getElementById('disable2FAPassword').value;
+    const code = document.getElementById('disable2FACode').value;
+
+    if (!password) {
+      showToast('请输入密码', 'warning');
+      return;
+    }
+
+    showLoading('正在关闭 2FA...');
+    try {
+      const res = await authFetch('/admin/2fa/disable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, code })
+      });
+      const data = await res.json();
+      hideLoading();
+
+      if (data.success) {
+        modal.remove();
+        showToast(data.message, 'success');
+        load2FAStatus();
+      } else {
+        showToast(data.message || '关闭 2FA 失败', 'error');
+      }
+    } catch (err) {
+      hideLoading();
+      showToast('请求失败: ' + err.message, 'error');
+    }
+  });
+}
