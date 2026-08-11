@@ -121,6 +121,26 @@
         min-height: 32px;
     }
 
+    /* 响应式表格 */
+    .table-responsive {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-radius: 8px;
+    }
+
+    .apikeys-table,
+    #statsPage table {
+        min-width: 680px;
+    }
+
+    .apikeys-table th,
+    .apikeys-table td,
+    #statsPage table th,
+    #statsPage table td {
+        white-space: nowrap;
+    }
+
     .token-grid {
         grid-template-columns: 1fr;
     }

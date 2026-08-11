@@ -333,8 +333,8 @@
                             <button type="button" onclick="loadApiKeys()" class="btn btn-warning btn-sm">🔄 刷新</button>
                         </div>
                     </div>
-                    <div class="table-responsive" style="margin-top: 1rem; background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1rem;">
-                        <table class="apikeys-table" style="width: 100%; border-collapse: collapse;">
+                    <div class="table-responsive" style="margin-top: 1rem; background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1rem; overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                        <table class="apikeys-table" style="width: 100%; min-width: 680px; border-collapse: collapse;">
                             <thead>
                                 <tr style="border-bottom: 2px solid var(--border-color, #e2e8f0); text-align: left;">
                                     <th style="padding: 10px;">名称</th>
@@ -390,8 +390,8 @@
                     <!-- 各 Key 消费明细列表 -->
                     <div style="background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1.2rem;">
                         <h4 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-color, #333);">📊 API 密钥消耗明细</h4>
-                        <div class="table-responsive">
-                            <table style="width: 100%; border-collapse: collapse;">
+                        <div class="table-responsive" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                            <table style="width: 100%; min-width: 680px; border-collapse: collapse;">
                                 <thead>
                                     <tr style="border-bottom: 2px solid var(--border-color, #e2e8f0); text-align: left;">
                                         <th style="padding: 10px;">API 密钥</th>

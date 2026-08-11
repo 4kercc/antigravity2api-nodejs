@@ -60,22 +60,22 @@ function renderApiKeysTable() {
 
         return `
             <tr style="border-bottom: 1px solid var(--border-color, #e2e8f0);">
-                <td style="padding: 10px; font-weight: bold;">
+                <td style="padding: 10px; font-weight: bold; white-space: nowrap;">
                     ${escapeHtml(k.name)}
                     ${isExceeded ? '<span style="font-size: 0.75rem; background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 5px;">额度已耗尽</span>' : ''}
                 </td>
-                <td style="padding: 10px; font-family: monospace;">
+                <td style="padding: 10px; font-family: monospace; white-space: nowrap;">
                     <span title="${escapeHtml(k.key)}">${escapeHtml(keyDisplay)}</span>
                     <button class="btn btn-sm" data-key="${escapeHtml(k.key)}" onclick="copyApiKeyBtn(this)" style="padding: 2px 6px; font-size: 0.75rem; margin-left: 5px;" title="复制 Key">📋</button>
                 </td>
-                <td style="padding: 10px;">
+                <td style="padding: 10px; white-space: nowrap;">
                     <label class="switch" style="transform: scale(0.8); transform-origin: left center;">
                         <input type="checkbox" ${k.enabled ? 'checked' : ''} onchange="toggleApiKeyEnabled('${k.id}', this.checked)">
                         <span class="slider"></span>
                     </label>
                 </td>
-                <td style="padding: 10px;">${requests.toLocaleString()} 次</td>
-                <td style="padding: 10px;">
+                <td style="padding: 10px; white-space: nowrap;">${requests.toLocaleString()} 次</td>
+                <td style="padding: 10px; white-space: nowrap;">
                     <div style="font-weight: bold; color: ${isExceeded ? '#ef4444' : 'var(--primary, #4f46e5)'};">
                         ${totalTokensStr} <span style="font-weight: normal; color: var(--text-light, #888); font-size: 0.85rem;">/ ${maxTokensDisplay}</span>
                     </div>
@@ -85,11 +85,11 @@ function renderApiKeysTable() {
                         </div>
                     ` : ''}
                 </td>
-                <td style="padding: 10px; font-size: 0.85rem; color: var(--text-light, #666);">
+                <td style="padding: 10px; font-size: 0.85rem; color: var(--text-light, #666); white-space: nowrap;">
                     <div>创建: ${createdDate}</div>
                     <div>使用: ${lastUsedDate}</div>
                 </td>
-                <td style="padding: 10px; text-align: right;">
+                <td style="padding: 10px; text-align: right; white-space: nowrap;">
                     <button class="btn btn-sm btn-info" onclick="showEditApiKeyModal('${k.id}')" style="margin-right: 4px;">✏️ 编辑</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteApiKey('${k.id}', '${escapeHtml(k.name)}')">🗑️ 删除</button>
                 </td>

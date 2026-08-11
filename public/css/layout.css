@@ -1,3 +1,18 @@
+/* 通用响应式表格 */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+}
+
+.apikeys-table th,
+.apikeys-table td,
+#statsPage table th,
+#statsPage table td {
+    white-space: nowrap;
+}
+
 /* 主内容区 */
 .main-content {
     margin: 0;
