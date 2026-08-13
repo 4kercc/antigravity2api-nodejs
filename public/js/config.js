@@ -596,6 +596,40 @@ async function saveCustomCert() {
     }
 }
 
+// 测试代理连通性
+async function testProxyConnectivity() {
+    const proxyInput = document.getElementById('proxyInput') || document.querySelector('input[name="PROXY"]');
+    const proxyUrl = proxyInput ? proxyInput.value.trim() : '';
+
+    const btn = document.getElementById('testProxyBtn');
+    const origText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ 测试中...';
+    }
+
+    try {
+        const response = await authFetch('/admin/test-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ proxy: proxyUrl })
+        });
+        const res = await response.json();
+        if (res.success) {
+            showToast(res.message, 'success');
+        } else {
+            showToast(res.message || '代理连接测试失败', 'error');
+        }
+    } catch (err) {
+        showToast('测试代理请求异常: ' + err.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = origText;
+        }
+    }
+}
+
 // 页面初始化：默认只显示一个设置分区
 document.addEventListener('DOMContentLoaded', () => {
     if (typeof setActiveSettingSection === 'function') {

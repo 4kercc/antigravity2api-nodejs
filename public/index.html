@@ -585,8 +585,11 @@
                                                 placeholder="https://your-domain.zeabur.app">
                                         </div>
                                         <div class="form-group compact">
-                                            <label>代理地址</label>
-                                            <input type="text" name="PROXY" placeholder="http://127.0.0.1:7890">
+                                            <label>代理地址 <span class="help-tip" data-tooltip="支持 HTTP、HTTPS 及 SOCKS5 代理 (例如 socks5://127.0.0.1:40000)">?</span></label>
+                                            <div style="display: flex; gap: 8px;">
+                                                <input type="text" name="PROXY" id="proxyInput" placeholder="socks5://127.0.0.1:40000 或 http://127.0.0.1:7890">
+                                                <button type="button" class="btn btn-info btn-sm" id="testProxyBtn" onclick="testProxyConnectivity()" style="white-space: nowrap;">⚡ 测试连通性</button>
+                                            </div>
                                         </div>
                                     </div>
 

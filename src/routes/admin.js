@@ -1,4 +1,12 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fingerprintRequester from '../requester.js';
+import { buildAxiosRequestConfig } from '../utils/httpClient.js';
+import axios from 'axios';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { generateToken, authMiddleware, verifyToken } from '../auth/jwt.js';
 import tokenManager from '../auth/token_manager.js';
 import geminicliTokenManager from '../auth/geminicli_token_manager.js';
@@ -415,6 +423,114 @@ router.post('/tokens/:tokenId/refresh', cookieAuthMiddleware, async (req, res) =
     logger.error('刷新Token失败:', error.message);
     const status = error.statusCode || 500;
     res.status(status).json({ success: false, message: error.message });
+  }
+});
+
+// 测试代理连通性
+router.post('/test-proxy', cookieAuthMiddleware, async (req, res) => {
+  const proxyUrl = req.body?.proxy !== undefined ? String(req.body.proxy).trim() : (config.proxy || '');
+
+  if (!proxyUrl) {
+    return res.status(400).json({ success: false, message: '请先输入或配置代理地址' });
+  }
+
+  // 规范化代理地址（如果是 socks5h:// 转换为 socks5://；如果包含多余空格清理）
+  let normalizedProxy = proxyUrl;
+  if (normalizedProxy.startsWith('socks5h://')) {
+    normalizedProxy = 'socks5://' + normalizedProxy.slice(10);
+  }
+
+  const startTime = Date.now();
+  const testTarget = 'https://cloudcode-pa.googleapis.com';
+
+  const isPkg = typeof process.pkg !== 'undefined';
+  const configPath = isPkg
+    ? path.join(path.dirname(process.execPath), 'bin', 'tls_config.json')
+    : path.join(__dirname, '..', 'bin', 'tls_config.json');
+
+  try {
+    let status = 200;
+    try {
+      const requester = fingerprintRequester.create({
+        configPath,
+        proxy: normalizedProxy,
+        timeout: 8
+      });
+
+      const response = await requester.antigravity_fetch(testTarget, {
+        method: 'GET',
+        timeout_ms: 8000
+      });
+      requester.close();
+      status = response.status;
+    } catch (tlsError) {
+      logger.warn(`[ProxyTest] FingerprintRequester 测试失败，使用 Axios 降级重试: ${tlsError.message}`);
+      
+      const axiosConfig = {
+        method: 'GET',
+        url: testTarget,
+        timeout: 8000,
+        validateStatus: () => true
+      };
+
+      if (normalizedProxy.startsWith('socks')) {
+        // 对于 SOCKS5 代理，Axios 路径使用内置代理转换或通用链接测试
+        try {
+          const u = new URL(normalizedProxy);
+          axiosConfig.proxy = {
+            protocol: 'http',
+            host: u.hostname,
+            port: parseInt(u.port, 10)
+          };
+        } catch {
+          axiosConfig.proxy = false;
+        }
+      } else {
+        const buildConfig = buildAxiosRequestConfig({
+          method: 'GET',
+          url: testTarget,
+          timeout: 8000
+        });
+        axiosConfig.httpAgent = buildConfig.httpAgent;
+        axiosConfig.httpsAgent = buildConfig.httpsAgent;
+        try {
+          const u = new URL(normalizedProxy);
+          axiosConfig.proxy = {
+            protocol: u.protocol.replace(':', ''),
+            host: u.hostname,
+            port: parseInt(u.port, 10)
+          };
+        } catch {
+          axiosConfig.proxy = false;
+        }
+      }
+
+      const axiosRes = await axios(axiosConfig);
+      status = axiosRes.status;
+    }
+
+    const duration = Date.now() - startTime;
+    res.json({
+      success: true,
+      message: `代理连接正常！状态码: ${status} (${duration}ms)`,
+      data: {
+        latency: duration,
+        status,
+        proxy: proxyUrl
+      }
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.warn(`[ProxyTest] 代理连通性测试失败: ${error.message}`);
+    res.status(500).json({
+      success: false,
+      message: `代理连接失败 (${duration}ms): ${error.message}`,
+      data: {
+        latency: duration,
+        error: error.message,
+        proxy: proxyUrl
+      }
+    });
   }
 });
 
