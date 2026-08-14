@@ -13,8 +13,8 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/3] Pulling latest code...
-git pull origin main
+echo [2/3] Pulling latest code (branch: antigravity2api)...
+git pull origin antigravity2api
 if errorlevel 1 (
     echo Failed to pull updates
     pause

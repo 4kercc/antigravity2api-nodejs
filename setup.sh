@@ -7,6 +7,7 @@ echo
 
 # 1. 配置仓库与程序运行主路径
 REPO_URL="https://github.com/4kercc/antigravity2api-nodejs.git"
+BRANCH="antigravity2api"
 TARGET_DIR="antigravity2api-nodejs"
 APP_NAME="antigravity2api"
 
@@ -34,8 +35,8 @@ elif [ -d "$TARGET_DIR" ]; then
     echo "发现已存在固定目录 ${TARGET_DIR}，进入该目录..."
     cd "$TARGET_DIR" || exit 1
 else
-    echo "正在克隆代码到固定目录 ./${TARGET_DIR}..."
-    git clone "$REPO_URL" "$TARGET_DIR"
+    echo "正在克隆分支 [${BRANCH}] 代码到固定目录 ./${TARGET_DIR}..."
+    git clone -b "$BRANCH" "$REPO_URL" "$TARGET_DIR"
     if [ $? -ne 0 ]; then
         echo "❌ 项目克隆失败，请检查网络或 Git 配置"
         exit 1
