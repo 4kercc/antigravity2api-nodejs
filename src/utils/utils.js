@@ -144,6 +144,7 @@ export function modelMapping(modelName) {
   if (modelName === 'claude-opus-4-5-thinking') return 'claude-opus-4-6-thinking';
   if (modelName === 'claude-opus-4-6') return 'claude-opus-4-6-thinking';
   if (modelName === 'gemini-2.5-flash-thinking') return 'gemini-2.5-flash';
+  if (modelName === 'gemini-3.7-flash-thinking') return 'gemini-3.7-flash';
   return modelName;
 }
 
