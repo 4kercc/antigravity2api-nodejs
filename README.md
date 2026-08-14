@@ -36,22 +36,22 @@
 
 **Windows (cmd.exe)**：
 ```bash
-curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.bat && setup.bat
+curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.bat && setup.bat
 ```
 
 **Windows (PowerShell)**：
 ```powershell
-IwR -Uri https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.bat -OutFile setup.bat; .\setup.bat
+IwR -Uri https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.bat -OutFile setup.bat; .\setup.bat
 ```
 
 **Linux/macOS**：
 ```bash
-wget https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
+wget https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 或使用 curl：
 ```bash
-curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
+curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 脚本会自动完成以下操作：
