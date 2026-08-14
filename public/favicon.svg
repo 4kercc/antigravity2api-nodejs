@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#090d16" />
+    </linearGradient>
+
+    <linearGradient id="cyanGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="50%" stop-color="#0891b2" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+
+    <linearGradient id="purpleGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc" />
+      <stop offset="40%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+
+  <g transform="translate(256, 256) rotate(-25)">
+    <ellipse cx="0" cy="0" rx="190" ry="70" fill="none" stroke="url(#cyanGrad)" stroke-width="16" opacity="0.85" stroke-dasharray="280 60 140 40" stroke-linecap="round" />
+  </g>
+
+  <g transform="translate(256, 256) rotate(45)">
+    <ellipse cx="0" cy="0" rx="140" ry="50" fill="none" stroke="url(#purpleGoldGrad)" stroke-width="10" opacity="0.75" stroke-linecap="round" />
+  </g>
+
+  <g transform="translate(256, 256)">
+    <path d="M 0 -110 Q 0 0 110 0 Q 0 0 0 110 Q 0 0 -110 0 Q 0 0 0 -110 Z" fill="url(#purpleGoldGrad)" />
+    <path d="M 0 -70 Q 0 0 70 0 Q 0 0 0 70 Q 0 0 -70 0 Q 0 0 0 -70 Z" fill="#ffffff" opacity="0.9" />
+    <circle cx="0" cy="0" r="16" fill="#fef08a" />
+  </g>
+
+  <circle cx="140" cy="340" r="10" fill="#38bdf8" />
+  <circle cx="350" cy="180" r="8" fill="#f59e0b" />
+  <path d="M 176 390 C 220 420, 292 420, 336 390" fill="none" stroke="url(#cyanGrad)" stroke-width="8" stroke-linecap="round" opacity="0.9" />
+</svg>
