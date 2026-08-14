@@ -145,8 +145,14 @@ export function modelMapping(modelName) {
   if (modelName === 'claude-opus-4-6') return 'claude-opus-4-6-thinking';
   if (modelName === 'gemini-2.5-flash-thinking') return 'gemini-2.5-flash';
   if (modelName === 'gemini-3.7-flash') return 'gemini-3.7-flash-tiered';
+  if (modelName === 'gemini-3.7-flash-high') return 'gemini-3.7-flash-tiered';
+  if (modelName === 'gemini-3.7-flash-medium') return 'gemini-3.7-flash-tiered';
+  if (modelName === 'gemini-3.7-flash-low') return 'gemini-3.7-flash-tiered';
   if (modelName === 'gemini-3.7-flash-thinking') return 'gemini-3.7-flash-tiered';
+  if (modelName === 'gemini-3.7-flash-lite') return 'gemini-3.7-flash-tiered';
   if (modelName === 'gemini-3.7-pro') return 'gemini-3.7-pro';
+  if (modelName === 'gemini-3.6-flash') return 'gemini-3.6-flash';
+  if (modelName === 'gemini-3.5-flash') return 'gemini-3.5-flash';
   return modelName;
 }
 
@@ -158,7 +164,20 @@ export function isEnableThinking(modelName) {
 }
 
 // ==================== 生成配置 ====================
-export function generateGenerationConfig(parameters, enableThinking, actualModelName) {
+export function generateGenerationConfig(parameters, enableThinking, actualModelName, rawModelName = '') {
+  // 检查是否从模型名称指定了思考级别（例如 gemini-3.7-flash-high / medium / low）
+  let inferredReasoningEffort = parameters.reasoning_effort;
+  if (inferredReasoningEffort === undefined && typeof rawModelName === 'string') {
+    const lowerRaw = rawModelName.toLowerCase();
+    if (lowerRaw.endsWith('-high')) {
+      inferredReasoningEffort = 'high';
+    } else if (lowerRaw.endsWith('-medium')) {
+      inferredReasoningEffort = 'medium';
+    } else if (lowerRaw.endsWith('-low')) {
+      inferredReasoningEffort = 'low';
+    }
+  }
+
   // 使用 config.defaults 兜底
   const normalizedParams = {
     temperature: parameters.temperature ?? config.defaults.temperature,
@@ -170,9 +189,9 @@ export function generateGenerationConfig(parameters, enableThinking, actualModel
   };
 
   // 处理 reasoning_effort 到 thinking_budget 的转换
-  if (normalizedParams.thinking_budget === undefined && parameters.reasoning_effort !== undefined) {
+  if (normalizedParams.thinking_budget === undefined && inferredReasoningEffort !== undefined) {
     const defaultThinkingBudget = config.defaults.thinking_budget ?? 1024;
-    normalizedParams.thinking_budget = REASONING_EFFORT_MAP[parameters.reasoning_effort] ?? defaultThinkingBudget;
+    normalizedParams.thinking_budget = REASONING_EFFORT_MAP[inferredReasoningEffort] ?? defaultThinkingBudget;
   }
 
   // 使用统一的参数转换函数
