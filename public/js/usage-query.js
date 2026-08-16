@@ -1,5 +1,28 @@
 // 公开 API 密钥使用量查询与仪表盘渲染
 
+/**
+ * 智能数字与单位格式化 (例如: 7.4亿, 42.6万, 2,407)
+ * @param {number} num 
+ * @param {number} precision 
+ * @returns {{ main: string, unit: string, full: string }}
+ */
+function formatHumanNumber(num, precision = 2) {
+    const val = Number(num) || 0;
+    const full = val.toLocaleString();
+
+    if (val >= 100000000) {
+        // >= 1 亿
+        const formatted = (val / 100000000).toFixed(precision).replace(/\.?0+$/, '');
+        return { main: formatted, unit: '亿', full };
+    }
+    if (val >= 10000) {
+        // >= 1 万
+        const formatted = (val / 10000).toFixed(precision).replace(/\.?0+$/, '');
+        return { main: formatted, unit: '万', full };
+    }
+    return { main: val.toLocaleString(), unit: '', full };
+}
+
 function showUsageQueryModal() {
     const existingModal = document.getElementById('usageQueryModal');
     if (existingModal) existingModal.remove();
@@ -10,24 +33,27 @@ function showUsageQueryModal() {
     modal.id = 'usageQueryModal';
     modal.className = 'modal';
     modal.innerHTML = `
-        <div class="modal-content modal-lg" style="max-width: 820px; max-height: 90vh; overflow-y: auto; padding: 1.5rem; position: relative;">
-            <button type="button" onclick="document.getElementById('usageQueryModal').remove()" style="position: absolute; right: 1rem; top: 1rem; background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-light, #888); width: auto; min-height: auto; padding: 0; box-shadow: none;">✕</button>
+        <div class="modal-content modal-lg" style="max-width: 860px; max-height: 90vh; overflow-y: auto; padding: 1.75rem; position: relative; border-radius: 1.25rem;">
+            <button type="button" onclick="document.getElementById('usageQueryModal').remove()" style="position: absolute; right: 1.25rem; top: 1.25rem; background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-light, #888); width: auto; min-height: auto; padding: 0; box-shadow: none;">✕</button>
             
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1.25rem;">
-                <img src="assets/logo.svg" alt="Logo" style="width: 32px; height: 32px;">
-                <h3 style="margin: 0; font-size: 1.2rem; color: var(--text);">📊 API 密钥使用量与额度查询</h3>
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem;">
+                <img src="assets/logo.svg" alt="Logo" style="width: 36px; height: 36px;">
+                <div>
+                    <h3 style="margin: 0; font-size: 1.25rem; color: var(--text); font-weight: 700;">📊 API 密钥额度与使用量查询</h3>
+                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 2px;">输入 API 密钥实时查询 Token 消耗、额度剩余及各模型调用分布</div>
+                </div>
             </div>
 
-            <div style="display: flex; gap: 8px; margin-bottom: 1.5rem;">
-                <input type="text" id="usageQueryKeyInput" placeholder="请输入你的 API 密钥 (例如: sk-...)" value="${escapeHtml(savedKey)}" style="flex: 1; font-family: monospace; font-size: 0.9rem;">
-                <button type="button" class="btn btn-primary" id="usageQuerySubmitBtn" onclick="doQueryUsageReport()" style="min-width: 100px;">🔍 查询</button>
+            <div style="display: flex; gap: 10px; margin-bottom: 1.75rem;">
+                <input type="text" id="usageQueryKeyInput" placeholder="请输入你的 API 密钥 (例如: sk-...)" value="${escapeHtml(savedKey)}" style="flex: 1; font-family: monospace; font-size: 0.95rem; padding: 0.65rem 1rem !important; border-radius: 0.6rem;">
+                <button type="button" class="btn btn-primary" id="usageQuerySubmitBtn" onclick="doQueryUsageReport()" style="min-width: 110px; font-size: 0.95rem; border-radius: 0.6rem;">🔍 查询</button>
             </div>
 
             <!-- 查询结果容器 -->
             <div id="usageQueryResultArea">
-                <div style="text-align: center; padding: 3rem 1rem; color: var(--text-light, #888);">
-                    <div style="font-size: 2.5rem; margin-bottom: 0.5rem; opacity: 0.6;">📈</div>
-                    <div style="font-size: 0.95rem;">输入 API Key 点击查询，即可查看实时请求次数、Token 消耗及模型使用分布</div>
+                <div style="text-align: center; padding: 3.5rem 1rem; color: var(--text-light, #888);">
+                    <div style="font-size: 3rem; margin-bottom: 0.75rem; opacity: 0.7;">📈</div>
+                    <div style="font-size: 1rem; font-weight: 500;">输入 API Key 点击查询，即可查看详细统计</div>
                 </div>
             </div>
         </div>
@@ -75,9 +101,9 @@ async function doQueryUsageReport() {
     }
 
     resultArea.innerHTML = `
-        <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-light, #888);">
-            <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border-width: 3px; border-top-color: var(--primary, #0891b2);"></div>
-            <div>正在获取使用量数据...</div>
+        <div style="text-align: center; padding: 3rem 1rem; color: var(--text-light, #888);">
+            <div class="spinner" style="margin: 0 auto 1.25rem auto; width: 36px; height: 36px; border-width: 3px; border-top-color: var(--primary, #0891b2);"></div>
+            <div style="font-size: 0.95rem;">正在获取实时使用量数据...</div>
         </div>
     `;
 
@@ -93,10 +119,10 @@ async function doQueryUsageReport() {
             renderUsageQueryResult(res.data);
         } else {
             resultArea.innerHTML = `
-                <div style="text-align: center; padding: 2.5rem 1rem; color: var(--danger, #ef4444); background: rgba(239, 68, 68, 0.05); border-radius: 8px; border: 1px dashed rgba(239, 68, 68, 0.3);">
-                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">❌</div>
-                    <div style="font-weight: bold; font-size: 1rem; margin-bottom: 0.25rem;">查询失败</div>
-                    <div style="font-size: 0.85rem; color: var(--text-light);">${escapeHtml(res.message || '未找到该 API Key')}</div>
+                <div style="text-align: center; padding: 2.5rem 1rem; color: var(--danger, #ef4444); background: rgba(239, 68, 68, 0.05); border-radius: 12px; border: 1.5px dashed rgba(239, 68, 68, 0.3);">
+                    <div style="font-size: 2.25rem; margin-bottom: 0.5rem;">❌</div>
+                    <div style="font-weight: bold; font-size: 1.05rem; margin-bottom: 0.25rem;">查询失败</div>
+                    <div style="font-size: 0.88rem; color: var(--text-light);">${escapeHtml(res.message || '未找到该 API Key')}</div>
                 </div>
             `;
         }
@@ -118,29 +144,38 @@ function renderUsageQueryResult(data) {
     const resultArea = document.getElementById('usageQueryResultArea');
     if (!resultArea) return;
 
-    const totalTokensStr = (data.totalTokens || 0).toLocaleString();
-    const inputTokensStr = (data.inputTokens || 0).toLocaleString();
-    const outputTokensStr = (data.outputTokens || 0).toLocaleString();
-    const requestsStr = (data.requests || 0).toLocaleString();
+    // 格式化总体数据
+    const totalTok = formatHumanNumber(data.totalTokens || 0, 2);
+    const inputTok = formatHumanNumber(data.inputTokens || 0, 2);
+    const outputTok = formatHumanNumber(data.outputTokens || 0, 2);
+    const requests = formatHumanNumber(data.requests || 0, 1);
     
-    let quotaDisplay = '无限制';
+    let quotaMain = '无限制';
+    let quotaSub = '不设上限';
     let progressColor = 'var(--primary, #4f46e5)';
+    let maxTokensFormatted = '';
+
     if (data.maxTokens && data.maxTokens > 0) {
-        quotaDisplay = `${(data.maxTokens).toLocaleString()} Token`;
+        const maxTok = formatHumanNumber(data.maxTokens, 2);
+        maxTokensFormatted = `${maxTok.main}${maxTok.unit}`;
         if (data.isExceeded) {
+            quotaMain = '已超限';
+            quotaSub = `上限: ${maxTokensFormatted}`;
             progressColor = '#ef4444';
-        } else if (data.percentage > 75) {
-            progressColor = '#f59e0b';
         } else {
-            progressColor = '#10b981';
+            const remainTokens = Math.max(0, data.maxTokens - (data.totalTokens || 0));
+            const remainTok = formatHumanNumber(remainTokens, 2);
+            quotaMain = `余 ${remainTok.main}${remainTok.unit}`;
+            quotaSub = `上限: ${maxTokensFormatted} (已用 ${data.percentage}%)`;
+            progressColor = data.percentage > 75 ? '#f59e0b' : '#10b981';
         }
     }
 
     const statusBadge = data.isExceeded
-        ? `<span style="background: rgba(239,68,68,0.15); color: #ef4444; padding: 3px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">⚠️ 额度已耗尽</span>`
+        ? `<span style="background: rgba(239,68,68,0.15); color: #ef4444; padding: 4px 10px; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;">⚠️ 额度已耗尽</span>`
         : (data.enabled 
-            ? `<span style="background: rgba(16,185,129,0.15); color: #10b981; padding: 3px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">✓ 正常可用</span>` 
-            : `<span style="background: rgba(100,116,139,0.15); color: #64748b; padding: 3px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;">已禁用</span>`);
+            ? `<span style="background: rgba(16,185,129,0.15); color: #10b981; padding: 4px 10px; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;">✓ 正常可用</span>` 
+            : `<span style="background: rgba(100,116,139,0.15); color: #64748b; padding: 4px 10px; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;">已禁用</span>`);
 
     const lastUsedFormatted = data.lastUsedAt ? new Date(data.lastUsedAt).toLocaleString() : '未使用';
 
@@ -149,42 +184,47 @@ function renderUsageQueryResult(data) {
     let modelsHtml = '';
     if (modelsList.length === 0) {
         modelsHtml = `
-            <div style="text-align: center; padding: 2rem 1rem; color: var(--text-light, #888); font-size: 0.85rem;">
+            <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-light, #888); font-size: 0.9rem;">
                 暂无模型调用记录
             </div>
         `;
     } else {
         modelsHtml = `
-            <div class="table-responsive" style="overflow-x: auto; margin-top: 0.5rem;">
-                <table style="width: 100%; min-width: 550px; border-collapse: collapse; font-size: 0.85rem;">
+            <div class="table-responsive" style="overflow-x: auto; margin-top: 0.75rem;">
+                <table style="width: 100%; min-width: 600px; border-collapse: collapse; font-size: 0.88rem;">
                     <thead>
                         <tr style="border-bottom: 2px solid var(--border, #e2e8f0); text-align: left; color: var(--text-light, #888);">
-                            <th style="padding: 8px 10px;">模型名称</th>
-                            <th style="padding: 8px 10px;">请求次数</th>
-                            <th style="padding: 8px 10px;">输入 Tokens</th>
-                            <th style="padding: 8px 10px;">输出 Tokens</th>
-                            <th style="padding: 8px 10px;">总 Tokens</th>
-                            <th style="padding: 8px 10px;">消耗占比</th>
+                            <th style="padding: 10px 12px;">模型名称</th>
+                            <th style="padding: 10px 12px;">请求次数</th>
+                            <th style="padding: 10px 12px;">输入 Tokens</th>
+                            <th style="padding: 10px 12px;">输出 Tokens</th>
+                            <th style="padding: 10px 12px;">总 Tokens</th>
+                            <th style="padding: 10px 12px; min-width: 120px;">消耗占比</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${modelsList.map(m => `
-                            <tr style="border-bottom: 1px solid var(--border, #e2e8f0);">
-                                <td style="padding: 10px; font-weight: bold; font-family: monospace; color: var(--text);">${escapeHtml(m.name)}</td>
-                                <td style="padding: 10px;">${m.requests.toLocaleString()} 次</td>
-                                <td style="padding: 10px; color: #10b981;">${m.inputTokens.toLocaleString()}</td>
-                                <td style="padding: 10px; color: #f59e0b;">${m.outputTokens.toLocaleString()}</td>
-                                <td style="padding: 10px; font-weight: bold; color: var(--primary);">${m.totalTokens.toLocaleString()}</td>
-                                <td style="padding: 10px;">
-                                    <div style="display: flex; align-items: center; gap: 6px;">
-                                        <div style="flex: 1; height: 6px; background: rgba(0,0,0,0.06); border-radius: 3px; overflow: hidden; min-width: 50px;">
-                                            <div style="width: ${m.percentage}%; background: var(--primary); height: 100%;"></div>
+                        ${modelsList.map(m => {
+                            const mTotal = formatHumanNumber(m.totalTokens, 2);
+                            const mInput = formatHumanNumber(m.inputTokens, 2);
+                            const mOutput = formatHumanNumber(m.outputTokens, 2);
+                            return `
+                                <tr style="border-bottom: 1px solid var(--border, #e2e8f0);">
+                                    <td style="padding: 12px; font-weight: 600; font-family: 'Ubuntu Mono', monospace; color: var(--text);">${escapeHtml(m.name)}</td>
+                                    <td style="padding: 12px;">${m.requests.toLocaleString()} 次</td>
+                                    <td style="padding: 12px; color: #10b981;" title="精确值: ${m.inputTokens.toLocaleString()}">${mInput.main}${mInput.unit}</td>
+                                    <td style="padding: 12px; color: #f59e0b;" title="精确值: ${m.outputTokens.toLocaleString()}">${mOutput.main}${mOutput.unit}</td>
+                                    <td style="padding: 12px; font-weight: bold; color: var(--primary);" title="精确值: ${m.totalTokens.toLocaleString()}">${mTotal.main}${mTotal.unit}</td>
+                                    <td style="padding: 12px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <div style="flex: 1; height: 8px; background: rgba(0,0,0,0.06); border-radius: 4px; overflow: hidden; min-width: 50px;">
+                                                <div style="width: ${m.percentage}%; background: var(--primary); height: 100%;"></div>
+                                            </div>
+                                            <span style="font-size: 0.78rem; color: var(--text-light); min-width: 42px; text-align: right;">${m.percentage}%</span>
                                         </div>
-                                        <span style="font-size: 0.75rem; color: var(--text-light);">${m.percentage}%</span>
-                                    </div>
-                                </td>
-                            </tr>
-                        `).join('')}
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -193,53 +233,83 @@ function renderUsageQueryResult(data) {
 
     resultArea.innerHTML = `
         <!-- 密钥基本信息条 -->
-        <div style="background: rgba(8, 145, 178, 0.05); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <strong style="font-size: 1rem; color: var(--text);">${escapeHtml(data.name)}</strong>
-                <span style="font-family: monospace; font-size: 0.85rem; color: var(--text-light);">(${escapeHtml(data.maskedKey)})</span>
+        <div style="background: rgba(8, 145, 178, 0.05); border: 1.5px solid var(--border); border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <strong style="font-size: 1.05rem; color: var(--text);">${escapeHtml(data.name)}</strong>
+                <span style="font-family: monospace; font-size: 0.88rem; color: var(--text-light); background: var(--card); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border);">${escapeHtml(data.maskedKey)}</span>
             </div>
             <div>${statusBadge}</div>
         </div>
 
         <!-- 4个核心指标大卡片 -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 1.25rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 1.5rem;">
+            
             <!-- 总请求数 -->
-            <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center;">
-                <div style="font-size: 0.8rem; color: var(--text-light);">📄 总请求次数</div>
-                <div style="font-size: 1.6rem; font-weight: bold; color: var(--primary); margin-top: 4px;">${requestsStr} <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-light);">次</span></div>
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+                    <span>📄</span> <span>总请求次数</span>
+                </div>
+                <div style="margin: 0.75rem 0 0.25rem 0;">
+                    <span style="font-size: 2.2rem; font-weight: 800; color: var(--primary); letter-spacing: -0.5px;" title="精确值: ${requests.full} 次">${requests.main}</span>
+                    ${requests.unit ? `<span style="font-size: 1.1rem; font-weight: 700; color: var(--primary); margin-left: 2px;">${requests.unit}</span>` : ''}
+                    <span style="font-size: 0.9rem; font-weight: normal; color: var(--text-light); margin-left: 4px;">次</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-light);">${requests.full} 次请求</div>
             </div>
 
-            <!-- 总 Token -->
-            <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center;">
-                <div style="font-size: 0.8rem; color: var(--text-light);">📦 总 Token 消耗</div>
-                <div style="font-size: 1.6rem; font-weight: bold; color: #3b82f6; margin-top: 4px;">${totalTokensStr}</div>
-                <div style="font-size: 0.7rem; color: var(--text-light); margin-top: 2px;">入: ${inputTokensStr} / 出: ${outputTokensStr}</div>
+            <!-- 总 Token 消耗 (大字 + 易读单位) -->
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+                    <span>🔥</span> <span>Tokens 用量</span>
+                </div>
+                <div style="margin: 0.75rem 0 0.25rem 0;">
+                    <span style="font-size: 2.2rem; font-weight: 800; color: #1e293b; letter-spacing: -0.5px;" title="精确值: ${totalTok.full}">${totalTok.main}</span>
+                    <span style="font-size: 1.2rem; font-weight: 700; color: #1e293b; margin-left: 2px;">${totalTok.unit || 'Token'}</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-light);" title="输入: ${inputTok.full} / 输出: ${outputTok.full}">
+                    入: ${inputTok.main}${inputTok.unit} · 出: ${outputTok.main}${outputTok.unit}
+                </div>
             </div>
 
-            <!-- 额度上限 -->
-            <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center;">
-                <div style="font-size: 0.8rem; color: var(--text-light);">🎯 额度上限阈值</div>
-                <div style="font-size: 1.3rem; font-weight: bold; color: ${progressColor}; margin-top: 4px;">${quotaDisplay}</div>
-                ${data.maxTokens ? `
-                    <div style="background: rgba(0,0,0,0.06); height: 5px; border-radius: 3px; overflow: hidden; margin-top: 6px;">
-                        <div style="width: ${data.percentage}%; background: ${progressColor}; height: 100%;"></div>
-                    </div>
-                    <div style="font-size: 0.7rem; color: var(--text-light); margin-top: 2px;">已消耗 ${data.percentage}%</div>
-                ` : '<div style="font-size: 0.7rem; color: #10b981; margin-top: 2px;">不设上限</div>'}
+            <!-- 额度上限与剩余 -->
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+                    <span>🎯</span> <span>额度状态</span>
+                </div>
+                <div style="margin: 0.75rem 0 0.25rem 0;">
+                    <span style="font-size: 1.8rem; font-weight: 800; color: ${progressColor}; letter-spacing: -0.5px;">${quotaMain}</span>
+                </div>
+                <div>
+                    ${data.maxTokens ? `
+                        <div style="background: rgba(0,0,0,0.06); height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 4px;">
+                            <div style="width: ${data.percentage}%; background: ${progressColor}; height: 100%;"></div>
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-light);">${quotaSub}</div>
+                    ` : '<div style="font-size: 0.75rem; color: #10b981;">无使用上限</div>'}
+                </div>
             </div>
 
             <!-- 最后活跃时间 -->
-            <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center;">
-                <div style="font-size: 0.8rem; color: var(--text-light);">⏱️ 最后活跃时间</div>
-                <div style="font-size: 0.95rem; font-weight: 600; color: var(--text); margin-top: 10px;">${lastUsedFormatted}</div>
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+                    <span>⏱️</span> <span>最后活跃时间</span>
+                </div>
+                <div style="margin: 0.75rem 0 0.25rem 0;">
+                    <span style="font-size: 1.15rem; font-weight: 700; color: var(--text); line-height: 1.4;">${lastUsedFormatted}</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-light);">创建于: ${data.createdAt ? new Date(data.createdAt).toLocaleDateString() : '-'}</div>
             </div>
+
         </div>
 
-        <!-- 模型分布面板 -->
-        <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+        <!-- 各模型消耗分布 -->
+        <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <strong style="font-size: 0.95rem; color: var(--text);">🌐 各模型消耗分布</strong>
-                <span style="font-size: 0.75rem; color: var(--text-light);">已调用 ${modelsList.length} 个模型</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.1rem;">🌐</span>
+                    <strong style="font-size: 1.05rem; color: var(--text);">各模型消耗分布</strong>
+                </div>
+                <span style="font-size: 0.8rem; color: var(--text-light); background: rgba(0,0,0,0.04); padding: 3px 8px; border-radius: 6px;">已调用 ${modelsList.length} 个模型</span>
             </div>
             ${modelsHtml}
         </div>
