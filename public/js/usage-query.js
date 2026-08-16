@@ -241,63 +241,63 @@ function renderUsageQueryResult(data) {
             <div>${statusBadge}</div>
         </div>
 
-        <!-- 4个核心指标大卡片 -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 1.5rem;">
+        <!-- 4个核心指标大卡片 (单行4列平铺，移动端自适应) -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 1.5rem;" class="usage-cards-grid">
             
             <!-- 总请求数 -->
-            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
-                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 0.85rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
+                <div style="font-size: 0.82rem; color: var(--text-light); display: flex; align-items: center; gap: 4px; white-space: nowrap;">
                     <span>📄</span> <span>总请求次数</span>
                 </div>
-                <div style="margin: 0.75rem 0 0.25rem 0;">
-                    <span style="font-size: 2.2rem; font-weight: 800; color: var(--primary); letter-spacing: -0.5px;" title="精确值: ${requests.full} 次">${requests.main}</span>
-                    ${requests.unit ? `<span style="font-size: 1.1rem; font-weight: 700; color: var(--primary); margin-left: 2px;">${requests.unit}</span>` : ''}
-                    <span style="font-size: 0.9rem; font-weight: normal; color: var(--text-light); margin-left: 4px;">次</span>
+                <div style="margin: 0.5rem 0 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    <span style="font-size: 1.85rem; font-weight: 800; color: var(--primary); letter-spacing: -0.5px;" title="精确值: ${requests.full} 次">${requests.main}</span>
+                    ${requests.unit ? `<span style="font-size: 1rem; font-weight: 700; color: var(--primary); margin-left: 1px;">${requests.unit}</span>` : ''}
+                    <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-light); margin-left: 2px;">次</span>
                 </div>
-                <div style="font-size: 0.75rem; color: var(--text-light);">${requests.full} 次请求</div>
+                <div style="font-size: 0.72rem; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">共 ${requests.full} 次</div>
             </div>
 
             <!-- 总 Token 消耗 (大字 + 易读单位) -->
-            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
-                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 0.85rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
+                <div style="font-size: 0.82rem; color: var(--text-light); display: flex; align-items: center; gap: 4px; white-space: nowrap;">
                     <span>🔥</span> <span>Tokens 用量</span>
                 </div>
-                <div style="margin: 0.75rem 0 0.25rem 0;">
-                    <span style="font-size: 2.2rem; font-weight: 800; color: #1e293b; letter-spacing: -0.5px;" title="精确值: ${totalTok.full}">${totalTok.main}</span>
-                    <span style="font-size: 1.2rem; font-weight: 700; color: #1e293b; margin-left: 2px;">${totalTok.unit || 'Token'}</span>
+                <div style="margin: 0.5rem 0 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    <span style="font-size: 1.85rem; font-weight: 800; color: var(--text); letter-spacing: -0.5px;" title="精确值: ${totalTok.full}">${totalTok.main}</span>
+                    <span style="font-size: 1.05rem; font-weight: 700; color: var(--text); margin-left: 1px;">${totalTok.unit || 'Token'}</span>
                 </div>
-                <div style="font-size: 0.75rem; color: var(--text-light);" title="输入: ${inputTok.full} / 输出: ${outputTok.full}">
+                <div style="font-size: 0.72rem; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="输入: ${inputTok.full} / 输出: ${outputTok.full}">
                     入: ${inputTok.main}${inputTok.unit} · 出: ${outputTok.main}${outputTok.unit}
                 </div>
             </div>
 
             <!-- 额度上限与剩余 -->
-            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
-                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 0.85rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
+                <div style="font-size: 0.82rem; color: var(--text-light); display: flex; align-items: center; gap: 4px; white-space: nowrap;">
                     <span>🎯</span> <span>额度状态</span>
                 </div>
-                <div style="margin: 0.75rem 0 0.25rem 0;">
-                    <span style="font-size: 1.8rem; font-weight: 800; color: ${progressColor}; letter-spacing: -0.5px;">${quotaMain}</span>
+                <div style="margin: 0.5rem 0 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    <span style="font-size: 1.65rem; font-weight: 800; color: ${progressColor}; letter-spacing: -0.5px;">${quotaMain}</span>
                 </div>
-                <div>
+                <div style="min-width: 0;">
                     ${data.maxTokens ? `
-                        <div style="background: rgba(0,0,0,0.06); height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 4px;">
+                        <div style="background: rgba(0,0,0,0.06); height: 5px; border-radius: 3px; overflow: hidden; margin-bottom: 3px;">
                             <div style="width: ${data.percentage}%; background: ${progressColor}; height: 100%;"></div>
                         </div>
-                        <div style="font-size: 0.75rem; color: var(--text-light);">${quotaSub}</div>
-                    ` : '<div style="font-size: 0.75rem; color: #10b981;">无使用上限</div>'}
+                        <div style="font-size: 0.72rem; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${quotaSub}</div>
+                    ` : '<div style="font-size: 0.72rem; color: #10b981; white-space: nowrap;">无使用上限</div>'}
                 </div>
             </div>
 
             <!-- 最后活跃时间 -->
-            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
-                <div style="font-size: 0.85rem; color: var(--text-light); display: flex; align-items: center; gap: 6px;">
+            <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 0.85rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
+                <div style="font-size: 0.82rem; color: var(--text-light); display: flex; align-items: center; gap: 4px; white-space: nowrap;">
                     <span>⏱️</span> <span>最后活跃时间</span>
                 </div>
-                <div style="margin: 0.75rem 0 0.25rem 0;">
-                    <span style="font-size: 1.15rem; font-weight: 700; color: var(--text); line-height: 1.4;">${lastUsedFormatted}</span>
+                <div style="margin: 0.5rem 0 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    <span style="font-size: 1.05rem; font-weight: 700; color: var(--text); line-height: 1.3;">${lastUsedFormatted}</span>
                 </div>
-                <div style="font-size: 0.75rem; color: var(--text-light);">创建于: ${data.createdAt ? new Date(data.createdAt).toLocaleDateString() : '-'}</div>
+                <div style="font-size: 0.72rem; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">创建于: ${data.createdAt ? new Date(data.createdAt).toLocaleDateString() : '-'}</div>
             </div>
 
         </div>

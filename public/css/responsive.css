@@ -259,6 +259,11 @@
         width: 54px;
     }
 
+    /* 移动端使用量查询卡片自适应 */
+    .usage-cards-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+
     /* 移动端Token卡片操作按钮 */
     .token-actions {
         display: flex;
