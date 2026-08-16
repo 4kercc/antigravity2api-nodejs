@@ -4,13 +4,13 @@ echo Antigravity2API Setup Script
 echo ========================================
 echo.
 
-echo [1/6] Cloning repository...
+echo [1/6] Cloning repository (branch: antigravity2api)...
 if exist "antigravity2api-nodejs" (
     echo Directory already exists, exiting...
     pause
     exit /b 1
 )
-git clone https://github.com/4kercc/antigravity2api-nodejs.git
+git clone -b antigravity2api https://github.com/4kercc/antigravity2api-nodejs.git
 if errorlevel 1 (
     echo Failed to clone repository
     pause

@@ -91,9 +91,25 @@ class ApiKeyManager {
       return { valid: false, keyInfo: null };
     }
 
-    // 匹配启用的 key
-    const match = this.keys.find(k => k.key === providedKey && k.enabled);
+    // 匹配 key
+    const match = this.keys.find(k => k.key === providedKey);
     if (match) {
+      // 校验 enabled 及 maxTokens 额度超限检查
+      if (!match.enabled) {
+        return { valid: false, keyInfo: null };
+      }
+
+      if (match.maxTokens && match.maxTokens > 0) {
+        const currentTotal = match.usage?.totalTokens || 0;
+        if (currentTotal >= match.maxTokens) {
+          // 额度超过上限，自动禁用
+          match.enabled = false;
+          this.saveToFile();
+          log.warn(`API 密钥 [${match.name}] (ID: ${match.id}) 已达到 Token 消耗上限 (${match.maxTokens.toLocaleString()})，自动禁用！`);
+          return { valid: false, keyInfo: null };
+        }
+      }
+
       return { valid: true, keyInfo: match };
     }
 
@@ -106,7 +122,7 @@ class ApiKeyManager {
     return { valid: false, keyInfo: null };
   }
 
-  createKey({ name, key }) {
+  createKey({ name, key, maxTokens }) {
     const apiKeyString = key && key.trim() ? key.trim() : ('sk-' + crypto.randomBytes(16).toString('hex'));
 
     // 校验 key 是否已存在
@@ -116,12 +132,14 @@ class ApiKeyManager {
     }
 
     const keyId = 'key_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
+    const parsedMaxTokens = Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0 ? Number(maxTokens) : null;
 
     const newKey = {
       id: keyId,
       name: name && name.trim() ? name.trim() : 'API Key',
       key: apiKeyString,
       enabled: true,
+      maxTokens: parsedMaxTokens,
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
       usage: {
@@ -137,7 +155,7 @@ class ApiKeyManager {
     return newKey;
   }
 
-  updateKey(id, { name, enabled, key }) {
+  updateKey(id, { name, enabled, key, maxTokens }) {
     const target = this.keys.find(k => k.id === id);
     if (!target) return null;
 
@@ -155,6 +173,9 @@ class ApiKeyManager {
     }
     if (typeof enabled === 'boolean') {
       target.enabled = enabled;
+    }
+    if (maxTokens !== undefined) {
+      target.maxTokens = Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0 ? Number(maxTokens) : null;
     }
 
     this.saveToFile();
@@ -188,6 +209,12 @@ class ApiKeyManager {
     target.usage.outputTokens = (target.usage.outputTokens || 0) + outputTokens;
     target.usage.totalTokens = (target.usage.totalTokens || 0) + totalTokens;
     target.lastUsedAt = new Date().toISOString();
+
+    // 校验记录后是否达到 Token 消耗阈值
+    if (target.maxTokens && target.maxTokens > 0 && target.usage.totalTokens >= target.maxTokens) {
+      target.enabled = false;
+      log.warn(`API 密钥 [${target.name}] (ID: ${target.id}) 累计 Token 已达上限 (${target.usage.totalTokens.toLocaleString()} / ${target.maxTokens.toLocaleString()})，自动禁用！`);
+    }
 
     this.saveToFile();
   }

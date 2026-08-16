@@ -56,7 +56,7 @@ export const DEFAULT_HEARTBEAT_INTERVAL = 15000;
  * 默认服务器端口
  * @type {number}
  */
-export const DEFAULT_SERVER_PORT = 8045;
+export const DEFAULT_SERVER_PORT = 443;
 
 /**
  * 默认服务器主机

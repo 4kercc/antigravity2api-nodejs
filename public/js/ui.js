@@ -261,6 +261,21 @@ function switchTab(tab, saveState = true) {
     }
 }
 
+// 实时根据 CLI 功能是否启用来控制 CLI 选项卡显示状态
+function updateGeminiCliTabVisibility(enabled) {
+    const cliTabBtn = document.querySelector('.tab[data-tab="geminicli"]');
+    if (cliTabBtn) {
+        if (enabled === false) {
+            cliTabBtn.style.display = 'none';
+            if (currentTab === 'geminicli') {
+                switchTab('tokens', true);
+            }
+        } else {
+            cliTabBtn.style.display = '';
+        }
+    }
+}
+
 // 恢复Tab状态
 function restoreTabState() {
     const savedTab = localStorage.getItem('currentTab');

@@ -1,4 +1,12 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fingerprintRequester from '../requester.js';
+import { buildAxiosRequestConfig } from '../utils/httpClient.js';
+import axios from 'axios';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { generateToken, authMiddleware, verifyToken } from '../auth/jwt.js';
 import tokenManager from '../auth/token_manager.js';
 import geminicliTokenManager from '../auth/geminicli_token_manager.js';
@@ -14,6 +22,9 @@ import { getModelsWithQuotas } from '../api/client.js';
 import { getEnvPath } from '../utils/paths.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
+import { getCertificateInfo, verifyDomainDNS, issueAcmeCert, generateSelfSignedCert, updateCustomCert, saveCertMeta } from '../utils/sslManager.js';
+import { get2FAConfig, save2FAConfig, generateSecret, generateTOTP, verifyTOTP, generateBackupCodes, consumeBackupCode } from '../utils/totpManager.js';
+import { server } from '../server/index.js';
 import dotenv from 'dotenv';
 
 const envPath = getEnvPath();
@@ -105,6 +116,14 @@ router.post('/login', async (req, res) => {
   }
 
   if (username === config.admin.username && password === config.admin.password) {
+    const twoFactorConfig = get2FAConfig();
+    if (twoFactorConfig.enabled && twoFactorConfig.secret) {
+      // 启用了 2FA，不直接签发完整 authToken，需要第二步输入 2FA 动态码
+      const tempToken = generateToken({ username, stage: '2fa_pending' });
+      logger.info(`🔐 管理员密码凭据通过 [IP: ${clientIP}]，等待 2FA 动态口令二次验证...`);
+      return res.json({ success: true, require2FA: true, tempToken });
+    }
+
     const token = generateToken({ username, role: 'admin' });
 
     // 设置 HttpOnly Cookie
@@ -123,6 +142,144 @@ router.post('/login', async (req, res) => {
     logger.warn(`❌ 管理员登录失败 [IP: ${clientIP}] (尝试用户: ${username})`);
     res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
+});
+
+// 2FA 二次验证登录接口
+router.post('/login/verify-2fa', async (req, res) => {
+  const clientIP = getClientIP(req);
+  const { tempToken, code } = req.body;
+
+  if (!tempToken || !code) {
+    return res.status(400).json({ success: false, message: '临时凭证和验证码必填' });
+  }
+
+  try {
+    const decoded = verifyToken(tempToken);
+    if (!decoded || decoded.stage !== '2fa_pending') {
+      return res.status(401).json({ success: false, message: '无效或已过期的登录凭证' });
+    }
+
+    const twoFactorConfig = get2FAConfig();
+    if (!twoFactorConfig.enabled || !twoFactorConfig.secret) {
+      return res.status(400).json({ success: false, message: '系统未开启 2FA 双因素验证' });
+    }
+
+    // 校验 TOTP 6位动态验证码
+    let valid = verifyTOTP(code, twoFactorConfig.secret);
+
+    // 若动态码校验未通过，尝试备用恢复码
+    if (!valid && consumeBackupCode(code)) {
+      valid = true;
+    }
+
+    if (!valid) {
+      await ipBlockManager.recordViolation(clientIP, 'admin_2fa_fail');
+      logger.warn(`❌ 2FA 二次验证失败 [IP: ${clientIP}]`);
+      return res.status(401).json({ success: false, message: '验证码或备用恢复码无效' });
+    }
+
+    // 验证通过，正式签发 JWT Token 并写 Cookie
+    const token = generateToken({ username: decoded.username, role: 'admin' });
+    res.cookie('authToken', token, {
+      ...COOKIE_OPTIONS,
+      secure: req.secure || process.env.NODE_ENV === 'production'
+    });
+
+    logger.info(`🔐 2FA 二次验证通过，管理员登录成功 [IP: ${clientIP}]`);
+    res.json({ success: true, token });
+  } catch (error) {
+    logger.error('2FA 验证登录异常:', error.message);
+    res.status(401).json({ success: false, message: '验证失败: ' + error.message });
+  }
+});
+
+// ==================== 2FA 管理 API ====================
+
+// 获取当前 2FA 开启状态
+router.get('/2fa/status', cookieAuthMiddleware, (req, res) => {
+  const cfg = get2FAConfig();
+  res.json({
+    success: true,
+    data: {
+      enabled: cfg.enabled === true,
+      hasBackupCodes: Array.isArray(cfg.backupCodes) && cfg.backupCodes.length > 0,
+      remainingBackupCodes: Array.isArray(cfg.backupCodes) ? cfg.backupCodes.length : 0
+    }
+  });
+});
+
+// 生成全新的 2FA 绑定密钥
+router.post('/2fa/setup', cookieAuthMiddleware, (req, res) => {
+  try {
+    const secret = generateSecret();
+    const appName = 'Antigravity2API';
+    const username = config.admin.username || 'admin';
+    const otpauthUrl = `otpauth://totp/${encodeURIComponent(appName)}:${encodeURIComponent(username)}?secret=${secret}&issuer=${encodeURIComponent(appName)}`;
+
+    res.json({
+      success: true,
+      data: {
+        secret,
+        otpauthUrl
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 校验 6 位动态验证码并确认开启 2FA
+router.post('/2fa/verify-enable', cookieAuthMiddleware, (req, res) => {
+  const { secret, code } = req.body;
+  if (!secret || !code) {
+    return res.status(400).json({ success: false, message: '密钥和验证码必填' });
+  }
+
+  const valid = verifyTOTP(code, secret);
+  if (!valid) {
+    return res.status(400).json({ success: false, message: '验证码错误，请确保时间同步后重试' });
+  }
+
+  // 生成备用恢复码
+  const backupCodes = generateBackupCodes();
+  save2FAConfig({
+    enabled: true,
+    secret,
+    backupCodes
+  });
+
+  logger.info('🔐 管理员成功启用双因素身份验证 (2FA)');
+  res.json({
+    success: true,
+    message: '2FA 双因素身份验证开启成功！',
+    data: { backupCodes }
+  });
+});
+
+// 解绑/关闭 2FA 身份验证
+router.post('/2fa/disable', cookieAuthMiddleware, (req, res) => {
+  const { password, code } = req.body;
+
+  if (!password || !verifyPassword(password)) {
+    return res.status(403).json({ success: false, message: '管理员密码验证失败' });
+  }
+
+  const currentCfg = get2FAConfig();
+  if (currentCfg.enabled && code) {
+    const valid = verifyTOTP(code, currentCfg.secret) || consumeBackupCode(code);
+    if (!valid) {
+      return res.status(400).json({ success: false, message: '2FA 动态验证码错误' });
+    }
+  }
+
+  save2FAConfig({
+    enabled: false,
+    secret: null,
+    backupCodes: []
+  });
+
+  logger.info('🔓 管理员已关闭双因素身份验证 (2FA)');
+  res.json({ success: true, message: '已安全关闭 2FA 双因素身份验证' });
 });
 
 // 登出接口
@@ -266,6 +423,114 @@ router.post('/tokens/:tokenId/refresh', cookieAuthMiddleware, async (req, res) =
     logger.error('刷新Token失败:', error.message);
     const status = error.statusCode || 500;
     res.status(status).json({ success: false, message: error.message });
+  }
+});
+
+// 测试代理连通性
+router.post('/test-proxy', cookieAuthMiddleware, async (req, res) => {
+  const proxyUrl = req.body?.proxy !== undefined ? String(req.body.proxy).trim() : (config.proxy || '');
+
+  if (!proxyUrl) {
+    return res.status(400).json({ success: false, message: '请先输入或配置代理地址' });
+  }
+
+  // 规范化代理地址（如果是 socks5h:// 转换为 socks5://；如果包含多余空格清理）
+  let normalizedProxy = proxyUrl;
+  if (normalizedProxy.startsWith('socks5h://')) {
+    normalizedProxy = 'socks5://' + normalizedProxy.slice(10);
+  }
+
+  const startTime = Date.now();
+  const testTarget = 'https://cloudcode-pa.googleapis.com';
+
+  const isPkg = typeof process.pkg !== 'undefined';
+  const configPath = isPkg
+    ? path.join(path.dirname(process.execPath), 'bin', 'tls_config.json')
+    : path.join(__dirname, '..', 'bin', 'tls_config.json');
+
+  try {
+    let status = 200;
+    try {
+      const requester = fingerprintRequester.create({
+        configPath,
+        proxy: normalizedProxy,
+        timeout: 8
+      });
+
+      const response = await requester.antigravity_fetch(testTarget, {
+        method: 'GET',
+        timeout_ms: 8000
+      });
+      requester.close();
+      status = response.status;
+    } catch (tlsError) {
+      logger.warn(`[ProxyTest] FingerprintRequester 测试失败，使用 Axios 降级重试: ${tlsError.message}`);
+      
+      const axiosConfig = {
+        method: 'GET',
+        url: testTarget,
+        timeout: 8000,
+        validateStatus: () => true
+      };
+
+      if (normalizedProxy.startsWith('socks')) {
+        // 对于 SOCKS5 代理，Axios 路径使用内置代理转换或通用链接测试
+        try {
+          const u = new URL(normalizedProxy);
+          axiosConfig.proxy = {
+            protocol: 'http',
+            host: u.hostname,
+            port: parseInt(u.port, 10)
+          };
+        } catch {
+          axiosConfig.proxy = false;
+        }
+      } else {
+        const buildConfig = buildAxiosRequestConfig({
+          method: 'GET',
+          url: testTarget,
+          timeout: 8000
+        });
+        axiosConfig.httpAgent = buildConfig.httpAgent;
+        axiosConfig.httpsAgent = buildConfig.httpsAgent;
+        try {
+          const u = new URL(normalizedProxy);
+          axiosConfig.proxy = {
+            protocol: u.protocol.replace(':', ''),
+            host: u.hostname,
+            port: parseInt(u.port, 10)
+          };
+        } catch {
+          axiosConfig.proxy = false;
+        }
+      }
+
+      const axiosRes = await axios(axiosConfig);
+      status = axiosRes.status;
+    }
+
+    const duration = Date.now() - startTime;
+    res.json({
+      success: true,
+      message: `代理连接正常！状态码: ${status} (${duration}ms)`,
+      data: {
+        latency: duration,
+        status,
+        proxy: proxyUrl
+      }
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.warn(`[ProxyTest] 代理连通性测试失败: ${error.message}`);
+    res.status(500).json({
+      success: false,
+      message: `代理连接失败 (${duration}ms): ${error.message}`,
+      data: {
+        latency: duration,
+        error: error.message,
+        proxy: proxyUrl
+      }
+    });
   }
 });
 
@@ -764,9 +1029,9 @@ router.get('/api-keys', cookieAuthMiddleware, (req, res) => {
 // 创建 API Key
 router.post('/api-keys', cookieAuthMiddleware, (req, res) => {
   try {
-    const { name, key } = req.body;
-    const newKey = apiKeyManager.createKey({ name, key });
-    logger.info(`创建新 API 密钥: ${newKey.name} (${newKey.id})`);
+    const { name, key, maxTokens } = req.body;
+    const newKey = apiKeyManager.createKey({ name, key, maxTokens });
+    logger.info(`创建新 API 密钥: ${newKey.name} (${newKey.id}), maxTokens=${newKey.maxTokens || '无限制'}`);
     res.json({ success: true, data: newKey, message: '创建 API 密钥成功' });
   } catch (error) {
     logger.error('创建 API 密钥失败:', error.message);
@@ -774,16 +1039,16 @@ router.post('/api-keys', cookieAuthMiddleware, (req, res) => {
   }
 });
 
-// 更新 API Key (修改名称 / 启用状态 / 密钥文本)
+// 更新 API Key (修改名称 / 启用状态 / 密钥文本 / Max Tokens)
 router.put('/api-keys/:id', cookieAuthMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    const { name, enabled, key } = req.body;
-    const updated = apiKeyManager.updateKey(id, { name, enabled, key });
+    const { name, enabled, key, maxTokens } = req.body;
+    const updated = apiKeyManager.updateKey(id, { name, enabled, key, maxTokens });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'API 密钥不存在' });
     }
-    logger.info(`更新 API 密钥 (${id}): ${updated.name}, enabled=${updated.enabled}`);
+    logger.info(`更新 API 密钥 (${id}): ${updated.name}, enabled=${updated.enabled}, maxTokens=${updated.maxTokens || '无限制'}`);
     res.json({ success: true, data: updated, message: '更新成功' });
   } catch (error) {
     logger.error('更新 API 密钥失败:', error.message);
@@ -1243,6 +1508,112 @@ router.get('/tokens/:tokenId/quotas', cookieAuthMiddleware, async (req, res) => 
     });
   } catch (error) {
     logger.error('获取额度失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ==================== 域名与 SSL 证书管理 API ====================
+
+// 获取证书及域名信息
+router.get('/certificate', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const certInfo = getCertificateInfo();
+    const currentConfig = getConfigJson();
+    res.json({
+      success: true,
+      data: {
+        ...certInfo,
+        serverDomain: currentConfig.server?.domain || certInfo.domain || '',
+        autoRenewCert: currentConfig.server?.autoRenewCert !== false && certInfo.autoRenew !== false,
+        port: currentConfig.server?.port || 443
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 更新/编辑域名配置并更新/重新签发证书
+router.put('/certificate/domain', cookieAuthMiddleware, async (req, res) => {
+  const { domain } = req.body;
+  const cleanDomain = (domain || '').trim();
+
+  try {
+    const currentConfig = getConfigJson();
+    if (!cleanDomain) {
+      // 留空即切换为自签 IP 证书模式
+      await generateSelfSignedCert('127.0.0.1');
+      saveConfigJson({ server: { ...currentConfig.server, domain: '' } });
+      if (server && server.reloadSSLContext) server.reloadSSLContext();
+      return res.json({ success: true, message: '已切换为自签 IP 证书模式' });
+    }
+
+    // 校验域名 DNS 解析
+    const dnsCheck = await verifyDomainDNS(cleanDomain);
+    if (!dnsCheck.valid) {
+      return res.status(400).json({ success: false, message: `域名解析验证失败: ${dnsCheck.reason}` });
+    }
+
+    // 调用 acme 签发证书
+    await issueAcmeCert(cleanDomain);
+    saveConfigJson({ server: { ...currentConfig.server, domain: cleanDomain } });
+    if (server && server.reloadSSLContext) server.reloadSSLContext();
+
+    res.json({ success: true, message: `域名 ${cleanDomain} 证书已成功签发并配置！` });
+  } catch (error) {
+    logger.error('修改域名/签发证书失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 切换“自动更新证书”开关
+router.put('/certificate/auto-renew', cookieAuthMiddleware, async (req, res) => {
+  const { autoRenew } = req.body;
+  const isEnabled = autoRenew === true;
+
+  try {
+    saveCertMeta({ autoRenew: isEnabled });
+    const currentConfig = getConfigJson();
+    saveConfigJson({ server: { ...currentConfig.server, autoRenewCert: isEnabled } });
+
+    res.json({ success: true, message: `已${isEnabled ? '开启' : '关闭'}证书自动更新` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 手动贴入/编辑 SSL 证书内容 (.crt 和 .key)
+router.put('/certificate/custom', cookieAuthMiddleware, async (req, res) => {
+  const { cert, key, domain } = req.body;
+  if (!cert || !key) {
+    return res.status(400).json({ success: false, message: '证书 (CRT) 和私钥 (KEY) 内容均不能为空' });
+  }
+
+  try {
+    updateCustomCert(cert, key, domain || '');
+    if (server && server.reloadSSLContext) server.reloadSSLContext();
+    res.json({ success: true, message: '自定义 SSL 证书及私钥更新成功！' });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// 手动触发一键证书续期 / 重新签发
+router.post('/certificate/renew', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const certInfo = getCertificateInfo();
+    const currentConfig = getConfigJson();
+    const targetDomain = currentConfig.server?.domain || certInfo.domain;
+
+    if (!targetDomain || certInfo.type === 'self-signed') {
+      return res.status(400).json({ success: false, message: '当前使用自签 IP 证书，无需续期。若要绑定域名请先设置域名。' });
+    }
+
+    await issueAcmeCert(targetDomain);
+    if (server && server.reloadSSLContext) server.reloadSSLContext();
+
+    res.json({ success: true, message: `域名 ${targetDomain} 的 SSL 证书手动续期/重新签发成功！` });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });

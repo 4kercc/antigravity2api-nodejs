@@ -13,8 +13,8 @@ if [ $? -ne 0 ]; then
 fi
 
 echo
-echo "[2/3] 拉取最新代码..."
-git pull origin main
+echo "[2/3] 拉取最新代码 (分支: antigravity2api)..."
+git pull origin antigravity2api
 if [ $? -ne 0 ]; then
     echo "拉取更新失败"
     exit 1

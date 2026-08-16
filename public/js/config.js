@@ -129,6 +129,7 @@ async function loadConfig() {
             if (json.server) {
                 if (form.elements['PORT']) form.elements['PORT'].value = json.server.port || '';
                 if (form.elements['HOST']) form.elements['HOST'].value = json.server.host || '';
+                if (form.elements['DOMAIN']) form.elements['DOMAIN'].value = json.server.domain || '';
                 if (form.elements['MAX_REQUEST_SIZE']) form.elements['MAX_REQUEST_SIZE'].value = json.server.maxRequestSize || '';
                 if (form.elements['HEARTBEAT_INTERVAL']) form.elements['HEARTBEAT_INTERVAL'].value = json.server.heartbeatInterval || '';
                 if (form.elements['MEMORY_CLEANUP_INTERVAL']) form.elements['MEMORY_CLEANUP_INTERVAL'].value = json.server.memoryCleanupInterval || '';
@@ -150,6 +151,13 @@ async function loadConfig() {
                 if (form.elements['RETRY_POLL_TOKEN_WITH_QUOTA']) form.elements['RETRY_POLL_TOKEN_WITH_QUOTA'].checked = json.other.retryPollTokenWithQuota || false;
                 if (form.elements['SKIP_PROJECT_ID_FETCH']) form.elements['SKIP_PROJECT_ID_FETCH'].checked = json.other.skipProjectIdFetch || false;
                 if (form.elements['USE_NATIVE_AXIOS']) form.elements['USE_NATIVE_AXIOS'].checked = json.other.useNativeAxios !== false;
+                
+                const cliEnabled = json.geminicli?.enabled !== false;
+                if (form.elements['GEMINICLI_ENABLED']) form.elements['GEMINICLI_ENABLED'].checked = cliEnabled;
+                if (typeof updateGeminiCliTabVisibility === 'function') {
+                    updateGeminiCliTabVisibility(cliEnabled);
+                }
+
                 if (form.elements['USE_CONTEXT_SYSTEM_PROMPT']) form.elements['USE_CONTEXT_SYSTEM_PROMPT'].checked = json.other.useContextSystemPrompt || false;
                 if (form.elements['MERGE_SYSTEM_PROMPT']) form.elements['MERGE_SYSTEM_PROMPT'].checked = json.other.mergeSystemPrompt !== false;
                 if (form.elements['OFFICIAL_PROMPT_POSITION']) form.elements['OFFICIAL_PROMPT_POSITION'].value = json.other.officialPromptPosition || 'before';
@@ -193,6 +201,9 @@ async function loadConfig() {
             }
 
             loadRotationStatus();
+            // 加载 SSL 证书状态
+            loadSSLCertInfo();
+
             // 默认只显示当前激活的设置分区（便于后续扩展）
             if (typeof setActiveSettingSection === 'function') {
                 setActiveSettingSection(activeSettingSectionId, false);
@@ -205,6 +216,10 @@ async function loadConfig() {
             // 加载白名单
             if (typeof loadWhitelistIPs === 'function') {
                 loadWhitelistIPs();
+            }
+            // 加载 2FA 状态
+            if (typeof load2FAStatus === 'function') {
+                load2FAStatus();
             }
         }
     } catch (error) {
@@ -296,10 +311,12 @@ async function saveConfig(e) {
         api: {},
         defaults: {},
         other: {},
-        rotation: {}
+        rotation: {},
+        geminicli: {}
     };
 
     // 处理checkbox：未选中的checkbox不会出现在FormData中
+    jsonConfig.geminicli.enabled = form.elements['GEMINICLI_ENABLED']?.checked !== false;
     jsonConfig.other.skipProjectIdFetch = form.elements['SKIP_PROJECT_ID_FETCH']?.checked || false;
     jsonConfig.other.useNativeAxios = form.elements['USE_NATIVE_AXIOS']?.checked || false;
     jsonConfig.api = { use: form.elements['API_USE']?.value || 'sandbox' };
@@ -322,6 +339,7 @@ async function saveConfig(e) {
         } else {
             if (key === 'PORT') jsonConfig.server.port = parseInt(value) || undefined;
             else if (key === 'HOST') jsonConfig.server.host = value || undefined;
+            else if (key === 'DOMAIN') jsonConfig.server.domain = value || undefined;
             else if (key === 'MAX_REQUEST_SIZE') jsonConfig.server.maxRequestSize = value || undefined;
             else if (key === 'HEARTBEAT_INTERVAL') jsonConfig.server.heartbeatInterval = parseInt(value) || undefined;
             else if (key === 'MEMORY_CLEANUP_INTERVAL') jsonConfig.server.memoryCleanupInterval = parseInt(value) || undefined;
@@ -433,6 +451,182 @@ async function saveConfig(e) {
     } catch (error) {
         hideLoading();
         showToast('保存失败: ' + error.message, 'error');
+    }
+}
+
+// ==================== 域名与 SSL 证书管理前端逻辑 ====================
+
+async function loadSSLCertInfo() {
+    try {
+        const response = await authFetch('/admin/certificate');
+        const res = await response.json();
+        if (res.success && res.data) {
+            const info = res.data;
+            const domainInput = document.getElementById('sslDomainInput');
+            if (domainInput && info.serverDomain !== undefined) {
+                domainInput.value = info.serverDomain;
+            }
+
+            const statusDomain = document.getElementById('sslStatusDomain');
+            const statusType = document.getElementById('sslStatusType');
+            const statusValidTo = document.getElementById('sslStatusValidTo');
+            const statusDays = document.getElementById('sslStatusDays');
+            const autoRenewCheckbox = document.getElementById('sslAutoRenewCheckbox');
+
+            if (statusDomain) statusDomain.textContent = info.domain || info.serverDomain || '无 (自签 IP)';
+            if (statusType) {
+                const typeMap = { 'acme': 'ACME 官方免费证书', 'self-signed': '自签 IP 证书', 'custom': '自定义粘贴证书' };
+                statusType.textContent = typeMap[info.type] || info.type || '未知';
+            }
+            if (statusValidTo) {
+                statusValidTo.textContent = info.validTo ? new Date(info.validTo).toLocaleString() : '-';
+            }
+            if (statusDays) {
+                statusDays.textContent = info.daysRemaining ? `${info.daysRemaining} 天` : '0 天';
+                statusDays.style.color = info.daysRemaining > 15 ? '#10b981' : '#ef4444';
+            }
+            if (autoRenewCheckbox) {
+                autoRenewCheckbox.checked = info.autoRenewCert !== false;
+            }
+        }
+    } catch (err) {
+        console.error('加载 SSL 证书状态失败:', err);
+    }
+}
+
+async function saveSSLDomain() {
+    const domainInput = document.getElementById('sslDomainInput');
+    const domain = (domainInput?.value || '').trim();
+
+    showLoading(domain ? `正在校验 DNS 并为 ${domain} 签发 SSL 证书...` : '正在配置自签 IP 证书...');
+    try {
+        const response = await authFetch('/admin/certificate/domain', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain })
+        });
+        const res = await response.json();
+        hideLoading();
+        if (res.success) {
+            showToast(res.message, 'success');
+            loadSSLCertInfo();
+        } else {
+            showToast(res.message || '更新失败', 'error');
+        }
+    } catch (err) {
+        hideLoading();
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+async function toggleSSLAutoRenew(enabled) {
+    try {
+        const response = await authFetch('/admin/certificate/auto-renew', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ autoRenew: enabled })
+        });
+        const res = await response.json();
+        if (res.success) {
+            showToast(res.message, 'success');
+        } else {
+            showToast(res.message || '操作失败', 'error');
+        }
+    } catch (err) {
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+async function renewSSLCert() {
+    showLoading('正在触发 SSL 证书一键续期/重新签发...');
+    try {
+        const response = await authFetch('/admin/certificate/renew', {
+            method: 'POST'
+        });
+        const res = await response.json();
+        hideLoading();
+        if (res.success) {
+            showToast(res.message, 'success');
+            loadSSLCertInfo();
+        } else {
+            showToast(res.message || '续期失败', 'error');
+        }
+    } catch (err) {
+        hideLoading();
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+function toggleCustomCertEditor() {
+    const editor = document.getElementById('customCertEditor');
+    if (editor) {
+        editor.style.display = editor.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+async function saveCustomCert() {
+    const cert = document.getElementById('customCertInput')?.value;
+    const key = document.getElementById('customKeyInput')?.value;
+    const domain = document.getElementById('sslDomainInput')?.value;
+
+    if (!cert || !key) {
+        showToast('证书 (CRT) 和私钥 (KEY) 内容均不能为空', 'warning');
+        return;
+    }
+
+    showLoading('正在保存并校验自定义 SSL 证书...');
+    try {
+        const response = await authFetch('/admin/certificate/custom', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cert, key, domain })
+        });
+        const res = await response.json();
+        hideLoading();
+        if (res.success) {
+            showToast(res.message, 'success');
+            loadSSLCertInfo();
+            toggleCustomCertEditor();
+        } else {
+            showToast(res.message || '保存失败', 'error');
+        }
+    } catch (err) {
+        hideLoading();
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+// 测试代理连通性
+async function testProxyConnectivity() {
+    const proxyInput = document.getElementById('proxyInput') || document.querySelector('input[name="PROXY"]');
+    const proxyUrl = proxyInput ? proxyInput.value.trim() : '';
+
+    const btn = document.getElementById('testProxyBtn');
+    const origText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ 测试中...';
+    }
+
+    try {
+        const response = await authFetch('/admin/test-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ proxy: proxyUrl })
+        });
+        const res = await response.json();
+        if (res.success) {
+            showToast(res.message, 'success');
+        } else {
+            showToast(res.message || '代理连接测试失败', 'error');
+        }
+    } catch (err) {
+        showToast('测试代理请求异常: ' + err.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = origText;
+        }
     }
 }
 

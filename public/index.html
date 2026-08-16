@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Token 管理</title>
+    <title>Antigravity2API 管理面板</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <!-- 防止页面闪烁：在渲染前根据Tab状态设置初始显示 -->
     <script>
         (function () {
@@ -232,7 +233,10 @@
     <div class="container">
         <!-- 登录表单 -->
         <div id="loginForm" class="login-form">
-            <h2>Token 管理</h2>
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <img src="assets/logo.svg" alt="Antigravity Logo" style="width: 72px; height: 72px; filter: drop-shadow(0 4px 12px rgba(8, 145, 178, 0.3));">
+            </div>
+            <h2>Antigravity2API</h2>
             <form id="login">
                 <div class="form-group">
                     <label>👤 用户名</label>
@@ -249,7 +253,11 @@
         <!-- 主内容 -->
         <div id="mainContent" class="main-content hidden">
             <div class="header">
-            <div class="tabs">
+            <div class="tabs" style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 6px; padding-right: 8px; margin-right: 4px; border-right: 1px solid var(--border);">
+                    <img src="assets/logo.svg" alt="Logo" style="width: 26px; height: 26px; border-radius: 6px;">
+                    <span style="font-weight: 700; font-size: 0.9rem; background: linear-gradient(135deg, var(--primary), #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Antigravity2API</span>
+                </div>
                 <button class="tab active" data-tab="tokens" onclick="switchTab('tokens')"><span
                         class="tab-icon">🎯</span><span class="tab-text">Token</span></button>
                 <button class="tab" data-tab="apikeys" onclick="switchTab('apikeys')"><span
@@ -333,15 +341,15 @@
                             <button type="button" onclick="loadApiKeys()" class="btn btn-warning btn-sm">🔄 刷新</button>
                         </div>
                     </div>
-                    <div class="table-responsive" style="margin-top: 1rem; background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1rem;">
-                        <table class="apikeys-table" style="width: 100%; border-collapse: collapse;">
+                    <div class="table-responsive" style="margin-top: 1rem; background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1rem; overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                        <table class="apikeys-table" style="width: 100%; min-width: 680px; border-collapse: collapse;">
                             <thead>
                                 <tr style="border-bottom: 2px solid var(--border-color, #e2e8f0); text-align: left;">
                                     <th style="padding: 10px;">名称</th>
                                     <th style="padding: 10px;">API 密钥 (Key)</th>
                                     <th style="padding: 10px;">状态</th>
                                     <th style="padding: 10px;">已用请求数</th>
-                                    <th style="padding: 10px;">累计 Token 消耗</th>
+                                    <th style="padding: 10px;">累计 Token 消耗 / 阈值</th>
                                     <th style="padding: 10px;">创建 / 最后使用</th>
                                     <th style="padding: 10px; text-align: right;">操作</th>
                                 </tr>
@@ -390,8 +398,8 @@
                     <!-- 各 Key 消费明细列表 -->
                     <div style="background: var(--bg-card, #fff); border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); padding: 1.2rem;">
                         <h4 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-color, #333);">📊 API 密钥消耗明细</h4>
-                        <div class="table-responsive">
-                            <table style="width: 100%; border-collapse: collapse;">
+                        <div class="table-responsive" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                            <table style="width: 100%; min-width: 680px; border-collapse: collapse;">
                                 <thead>
                                     <tr style="border-bottom: 2px solid var(--border-color, #e2e8f0); text-align: left;">
                                         <th style="padding: 10px;">API 密钥</th>
@@ -502,6 +510,7 @@
                                 <select class="settings-section-select" id="settingsSectionSelect"
                                     onchange="setActiveSettingSection(this.value, true)">
                                     <option value="section-server">🖥️ 服务器</option>
+                                    <option value="section-ssl">🔒 域名与证书</option>
                                     <option value="section-model">🎛️ 模型参数</option>
                                     <option value="section-rotation">🔄 轮询与性能</option>
                                     <option value="section-security">🛡️ 安全管理</option>
@@ -509,6 +518,8 @@
                                 <div class="settings-nav-list">
                                     <button type="button" class="settings-nav-item" data-target="section-server"
                                         onclick="setActiveSettingSection('section-server', true)">🖥️ 服务器</button>
+                                    <button type="button" class="settings-nav-item" data-target="section-ssl"
+                                        onclick="setActiveSettingSection('section-ssl', true)">🔒 域名与证书</button>
                                     <button type="button" class="settings-nav-item" data-target="section-model"
                                         onclick="setActiveSettingSection('section-model', true)">🎛️ 模型参数</button>
                                     <button type="button" class="settings-nav-item" data-target="section-rotation"
@@ -530,6 +541,10 @@
                                             <div class="form-group compact">
                                                 <label>监听地址</label>
                                                 <input type="text" name="HOST" placeholder="0.0.0.0">
+                                            </div>
+                                            <div class="form-group compact">
+                                                <label>绑定域名 <span class="help-tip" data-tooltip="绑定的域名（留空为自签 IP 证书）">?</span></label>
+                                                <input type="text" name="DOMAIN" placeholder="example.com">
                                             </div>
                                         </div>
                                         <div class="form-group compact">
@@ -563,6 +578,14 @@
                                                     <span class="slider"></span>
                                                 </label>
                                             </div>
+                                            <div class="form-group compact switch-group">
+                                                <label>Gemini CLI 功能 <span class="help-tip"
+                                                        data-tooltip="开启或关闭 Gemini CLI (/cli/*) API 反代功能及 CLI 页面标签">?</span></label>
+                                                <label class="switch">
+                                                    <input type="checkbox" name="GEMINICLI_ENABLED" id="geminiCliEnabledCheckbox" checked>
+                                                    <span class="slider"></span>
+                                                </label>
+                                            </div>
                                         </div>
                                         <div class="form-group compact">
                                             <label>图片访问链接</label>
@@ -570,8 +593,62 @@
                                                 placeholder="https://your-domain.zeabur.app">
                                         </div>
                                         <div class="form-group compact">
-                                            <label>代理地址</label>
-                                            <input type="text" name="PROXY" placeholder="http://127.0.0.1:7890">
+                                            <label>代理地址 <span class="help-tip" data-tooltip="支持 HTTP、HTTPS 及 SOCKS5 代理 (例如 socks5://127.0.0.1:40000)">?</span></label>
+                                            <div style="display: flex; gap: 8px;">
+                                                <input type="text" name="PROXY" id="proxyInput" placeholder="socks5://127.0.0.1:40000 或 http://127.0.0.1:7890">
+                                                <button type="button" class="btn btn-info btn-sm" id="testProxyBtn" onclick="testProxyConnectivity()" style="white-space: nowrap;">⚡ 测试连通性</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 域名与 SSL 证书配置 -->
+                                    <div class="config-section" id="section-ssl">
+                                        <h4>🔒 域名与 SSL 证书管理</h4>
+                                        <div class="form-group compact">
+                                            <label>绑定域名 <span class="help-tip" data-tooltip="留空将使用自签 IP 证书">?</span></label>
+                                            <div style="display: flex; gap: 8px;">
+                                                <input type="text" id="sslDomainInput" placeholder="example.com (留空为自签 IP)">
+                                                <button type="button" class="btn btn-primary btn-sm" onclick="saveSSLDomain()">保存域名并签发</button>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 证书状态卡片 -->
+                                        <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                                <strong style="font-size: 0.95rem;">证书状态信息</strong>
+                                                <button type="button" class="btn btn-info btn-sm" onclick="loadSSLCertInfo()">刷新状态</button>
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">
+                                                <div>当前绑定: <span id="sslStatusDomain" style="font-weight: bold; color: var(--primary);">加载中...</span></div>
+                                                <div>证书类型: <span id="sslStatusType" style="font-weight: bold;">-</span></div>
+                                                <div>到期时间: <span id="sslStatusValidTo">-</span></div>
+                                                <div>剩余天数: <span id="sslStatusDays" style="font-weight: bold; color: #10b981;">-</span></div>
+                                            </div>
+                                            <div class="form-group compact switch-group" style="margin-top: 10px; margin-bottom: 0; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
+                                                <label>自动更新证书 (到期前30天自动续期)</label>
+                                                <label class="switch">
+                                                    <input type="checkbox" id="sslAutoRenewCheckbox" onchange="toggleSSLAutoRenew(this.checked)">
+                                                    <span class="slider"></span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                                            <button type="button" class="btn btn-warning btn-sm" onclick="renewSSLCert()">一键手动续期 / 重新签发</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleCustomCertEditor()">编辑/粘贴 SSL 证书文件</button>
+                                        </div>
+
+                                        <!-- 自定义证书编辑器 -->
+                                        <div id="customCertEditor" style="display: none; border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 12px;">
+                                            <div class="form-group compact">
+                                                <label>证书文件内容 (CRT / PEM)</label>
+                                                <textarea id="customCertInput" rows="5" style="font-family: monospace; font-size: 0.8rem;" placeholder="-----BEGIN CERTIFICATE----- ..."></textarea>
+                                            </div>
+                                            <div class="form-group compact">
+                                                <label>私钥文件内容 (KEY)</label>
+                                                <textarea id="customKeyInput" rows="5" style="font-family: monospace; font-size: 0.8rem;" placeholder="-----BEGIN PRIVATE KEY----- ..."></textarea>
+                                            </div>
+                                            <button type="button" class="btn btn-success btn-sm" onclick="saveCustomCert()">保存自定义证书并加载</button>
                                         </div>
                                     </div>
 
@@ -843,6 +920,26 @@
                                                 <button type="button" onclick="addWhitelistIP()" class="btn btn-sm btn-success">➕ 添加</button>
                                             </div>
                                             <div id="whitelistIPsList" class="whitelist-ips-list"></div>
+                                        </div>
+
+                                        <!-- 双因素身份验证 (2FA / TOTP) 管理 -->
+                                        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed var(--border-color, #e2e8f0);">
+                                            <h5>🔑 双因素身份验证 (2FA / TOTP)</h5>
+                                            <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 12px 16px; margin-top: 8px;">
+                                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                    <div>
+                                                        <strong>2FA 保护状态:</strong>
+                                                        <span id="twoFactorStatusBadge" style="font-weight: bold; margin-left: 6px; color: var(--text-light, #888);">加载中...</span>
+                                                    </div>
+                                                    <div>
+                                                        <button type="button" id="twoFactorEnableBtn" onclick="show2FASetupModal()" class="btn btn-sm btn-success" style="display: none;">开启 2FA 二次验证</button>
+                                                        <button type="button" id="twoFactorDisableBtn" onclick="show2FADisableModal()" class="btn btn-sm btn-danger" style="display: none;">关闭 2FA 二次验证</button>
+                                                    </div>
+                                                </div>
+                                                <div id="twoFactorBackupCodesInfo" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-light, #666); display: none;">
+                                                    剩余备用恢复码数量: <span id="twoFactorBackupCodesCount" style="font-weight: bold; color: var(--primary);">0</span> 个
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

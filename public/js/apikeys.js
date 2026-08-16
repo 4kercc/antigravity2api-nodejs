@@ -38,7 +38,20 @@ function renderApiKeysTable() {
         const createdDate = k.createdAt ? new Date(k.createdAt).toLocaleString() : '-';
         const lastUsedDate = k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '未使用';
         const requests = k.usage?.requests || 0;
-        const totalTokens = (k.usage?.totalTokens || 0).toLocaleString();
+        const totalTokensNum = k.usage?.totalTokens || 0;
+        const totalTokensStr = totalTokensNum.toLocaleString();
+
+        let maxTokensDisplay = '无限制';
+        let isExceeded = false;
+        let quotaPercent = 0;
+
+        if (k.maxTokens && k.maxTokens > 0) {
+            maxTokensDisplay = k.maxTokens.toLocaleString();
+            quotaPercent = Math.min(100, Math.round((totalTokensNum / k.maxTokens) * 100));
+            if (totalTokensNum >= k.maxTokens) {
+                isExceeded = true;
+            }
+        }
 
         const keyHide = typeof sensitiveInfoHidden !== 'undefined' ? sensitiveInfoHidden : true;
         const keyDisplay = keyHide
@@ -47,24 +60,37 @@ function renderApiKeysTable() {
 
         return `
             <tr style="border-bottom: 1px solid var(--border-color, #e2e8f0);">
-                <td style="padding: 10px; font-weight: bold;">${escapeHtml(k.name)}</td>
-                <td style="padding: 10px; font-family: monospace;">
+                <td style="padding: 10px; font-weight: bold; white-space: nowrap;">
+                    ${escapeHtml(k.name)}
+                    ${isExceeded ? '<span style="font-size: 0.75rem; background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 5px;">额度已耗尽</span>' : ''}
+                </td>
+                <td style="padding: 10px; font-family: monospace; white-space: nowrap;">
                     <span title="${escapeHtml(k.key)}">${escapeHtml(keyDisplay)}</span>
                     <button class="btn btn-sm" data-key="${escapeHtml(k.key)}" onclick="copyApiKeyBtn(this)" style="padding: 2px 6px; font-size: 0.75rem; margin-left: 5px;" title="复制 Key">📋</button>
                 </td>
-                <td style="padding: 10px;">
+                <td style="padding: 10px; white-space: nowrap;">
                     <label class="switch" style="transform: scale(0.8); transform-origin: left center;">
                         <input type="checkbox" ${k.enabled ? 'checked' : ''} onchange="toggleApiKeyEnabled('${k.id}', this.checked)">
                         <span class="slider"></span>
                     </label>
                 </td>
-                <td style="padding: 10px;">${requests.toLocaleString()} 次</td>
-                <td style="padding: 10px; font-weight: bold; color: var(--primary, #4f46e5);">${totalTokens}</td>
-                <td style="padding: 10px; font-size: 0.85rem; color: var(--text-light, #666);">
+                <td style="padding: 10px; white-space: nowrap;">${requests.toLocaleString()} 次</td>
+                <td style="padding: 10px; white-space: nowrap;">
+                    <div style="font-weight: bold; color: ${isExceeded ? '#ef4444' : 'var(--primary, #4f46e5)'};">
+                        ${totalTokensStr} <span style="font-weight: normal; color: var(--text-light, #888); font-size: 0.85rem;">/ ${maxTokensDisplay}</span>
+                    </div>
+                    ${k.maxTokens ? `
+                        <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 4px; width: 120px;">
+                            <div style="width: ${quotaPercent}%; background: ${isExceeded ? '#ef4444' : '#10b981'}; height: 100%;"></div>
+                        </div>
+                    ` : ''}
+                </td>
+                <td style="padding: 10px; font-size: 0.85rem; color: var(--text-light, #666); white-space: nowrap;">
                     <div>创建: ${createdDate}</div>
                     <div>使用: ${lastUsedDate}</div>
                 </td>
-                <td style="padding: 10px; text-align: right;">
+                <td style="padding: 10px; text-align: right; white-space: nowrap;">
+                    <button class="btn btn-sm btn-info" onclick="showEditApiKeyModal('${k.id}')" style="margin-right: 4px;">✏️ 编辑</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteApiKey('${k.id}', '${escapeHtml(k.name)}')">🗑️ 删除</button>
                 </td>
             </tr>
@@ -111,6 +137,10 @@ async function showCreateApiKeyModal() {
                 <label>自定义密钥字符串 (留空自动生成)</label>
                 <input type="text" id="newApiKeyString" placeholder="${defaultKey}">
             </div>
+            <div class="form-group compact" style="margin-top: 0.5rem;">
+                <label>Token 累计消耗上限阈值 (设为 0 或留空代表无限制，例如: 100000000 即 1 亿 Token)</label>
+                <input type="number" id="newApiKeyMaxTokens" placeholder="例如: 100000000">
+            </div>
             <div class="modal-actions" style="margin-top: 1.5rem;">
                 <button class="btn btn-secondary" id="cancelCreateApiKeyBtn">取消</button>
                 <button class="btn btn-primary" id="confirmCreateApiKeyBtn">创建</button>
@@ -147,16 +177,19 @@ async function showCreateApiKeyModal() {
     if (confirmed) {
         const nameInput = document.getElementById('newApiKeyName');
         const keyInput = document.getElementById('newApiKeyString');
+        const maxTokensInput = document.getElementById('newApiKeyMaxTokens');
 
         const name = nameInput ? nameInput.value.trim() : 'API Key';
         const key = keyInput ? keyInput.value.trim() : '';
+        const maxTokensVal = maxTokensInput ? parseInt(maxTokensInput.value) : 0;
+        const maxTokens = Number.isFinite(maxTokensVal) && maxTokensVal > 0 ? maxTokensVal : null;
         modal.remove();
 
         try {
             const res = await authFetch('/admin/api-keys', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, key })
+                body: JSON.stringify({ name, key, maxTokens })
             });
             const data = await res.json();
             if (data.success) {
@@ -167,6 +200,91 @@ async function showCreateApiKeyModal() {
             }
         } catch (err) {
             showToast('创建失败: ' + err.message, 'error');
+        }
+    }
+}
+
+async function showEditApiKeyModal(id) {
+    const keys = globalApiKeysData.keys || [];
+    const targetKey = keys.find(k => k.id === id);
+    if (!targetKey) return;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal form-modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-title">✏️ 编辑 API 密钥【${escapeHtml(targetKey.name)}】</div>
+            <div class="form-group compact" style="margin-top: 1rem;">
+                <label>密钥名称</label>
+                <input type="text" id="editApiKeyName" value="${escapeHtml(targetKey.name)}">
+            </div>
+            <div class="form-group compact" style="margin-top: 0.5rem;">
+                <label>密钥字符串</label>
+                <input type="text" id="editApiKeyString" value="${escapeHtml(targetKey.key)}">
+            </div>
+            <div class="form-group compact" style="margin-top: 0.5rem;">
+                <label>Token 累计消耗上限阈值 (0 或留空为不限制，例如: 100000000 代表 1 亿 Token)</label>
+                <input type="number" id="editApiKeyMaxTokens" value="${targetKey.maxTokens || ''}" placeholder="不限制">
+            </div>
+            <div class="modal-actions" style="margin-top: 1.5rem;">
+                <button class="btn btn-secondary" id="cancelEditApiKeyBtn">取消</button>
+                <button class="btn btn-primary" id="confirmEditApiKeyBtn">保存修改</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const confirmed = await new Promise((resolve) => {
+        const cancelBtn = modal.querySelector('#cancelEditApiKeyBtn');
+        const confirmBtn = modal.querySelector('#confirmEditApiKeyBtn');
+        
+        const cleanup = () => {
+            modal.remove();
+        };
+
+        cancelBtn.addEventListener('click', () => {
+            cleanup();
+            resolve(false);
+        });
+
+        confirmBtn.addEventListener('click', () => {
+            resolve(true);
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        });
+    });
+
+    if (confirmed) {
+        const nameInput = document.getElementById('editApiKeyName');
+        const keyInput = document.getElementById('editApiKeyString');
+        const maxTokensInput = document.getElementById('editApiKeyMaxTokens');
+
+        const name = nameInput ? nameInput.value.trim() : targetKey.name;
+        const key = keyInput ? keyInput.value.trim() : targetKey.key;
+        const maxTokensVal = maxTokensInput ? parseInt(maxTokensInput.value) : 0;
+        const maxTokens = Number.isFinite(maxTokensVal) && maxTokensVal > 0 ? maxTokensVal : null;
+        modal.remove();
+
+        try {
+            const res = await authFetch(`/admin/api-keys/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, key, maxTokens })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('API 密钥已更新', 'success');
+                loadApiKeys();
+            } else {
+                showToast(data.message || '更新失败', 'error');
+            }
+        } catch (err) {
+            showToast('更新失败: ' + err.message, 'error');
         }
     }
 }

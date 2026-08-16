@@ -6,9 +6,14 @@
 
 | 特性 | 说明 |
 | :--- | :--- |
-| 🔑 **多 API 密钥管理** | 支持创建、开启/禁用、删除多个 API Key，且每个 Key 独立记录请求数与 Token 使用明细 |
-| 📊 **Token 消费统计** | 提供基于 API Key 维度的 Input / Output / Total Token 使用量实时仪表盘统计 |
+| 🔒 **全站原生 HTTPS & ACME 证书** | 默认支持 443 端口加密传输，集成 acme.sh 自动化签发与到期无感热重载，支持 DNS 解析校验与 IP 自签证书兜底 |
+| 🔑 **2FA 双因素身份验证** | 支持使用 Google Authenticator 等动态口令 App 绑定 2FA，提供 10 个一次性备用恢复码防丢防护 |
+| 🎛️ **CLI 功能开关控制** | 可在设置中开启或关闭 Gemini CLI (/cli/*) API 反代功能，关闭后自动隐藏 CLI 页面标签 |
+| 🎯 **API 密钥 Token 消耗上限** | 支持为单个 API Key 设置最大 Token 消耗限制（如设置 1 亿 Token 阈值），用完后自动禁用防止超量使用 |
+| 🔑 **多 API 密钥管理** | 支持创建、编辑、开启/禁用、删除多个 API Key，且每个 Key 独立记录请求数与 Token 使用明细 |
+| 📊 **Token 消费统计** | 提供基于 API Key 维度的 Input / Output / Total Token 使用量实时仪表盘统计与百分比显示 |
 | 🔄 **额度自动控制** | 可在“轮询与性能”中自定义最低额度阈值，低于阈值自动停止轮询，恢复后自动激活 |
+| 🌐 **域名与证书动态管理** | 后台提供“域名与 SSL 证书”管理页面，可在线更新域名、查看证书剩余天数、一键续期及贴入自定义证书 |
 | 🌐 **请求来源与明细日志** | 实时日志面板清晰标注客户端来源 IP，并高亮单次 API 请求消耗的 Token 数量 |
 | 📦 **配置导入导出与全防护** | 支持全量配置与 Token 一键导入/导出；自动屏蔽敏感文件，防止推送 Git 泄露凭据 |
 | 📈 **周额度与全屏大屏展示** | 卡片与面板完整呈现 5h 及周额度限制，全屏铺满布局保障时间与数据无遮挡展示 |
@@ -31,30 +36,31 @@
 
 **Windows (cmd.exe)**：
 ```bash
-curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.bat && setup.bat
+curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.bat && setup.bat
 ```
 
 **Windows (PowerShell)**：
 ```powershell
-IwR -Uri https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.bat -OutFile setup.bat; .\setup.bat
+IwR -Uri https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.bat -OutFile setup.bat; .\setup.bat
 ```
 
 **Linux/macOS**：
 ```bash
-wget https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
+wget https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 或使用 curl：
 ```bash
-curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/main/setup.sh && chmod +x setup.sh && ./setup.sh
+curl -O https://raw.githubusercontent.com/4kercc/antigravity2api-nodejs/antigravity2api/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 脚本会自动完成以下操作：
-1. 检测并自动安装 git, curl, Node.js, PM2 等系统依赖
+1. 检测并自动安装 git, curl, openssl, Node.js, PM2 等系统依赖
 2. 克隆项目仓库或直接在当前目录准备环境
 3. 安装 npm 项目依赖
-4. 交互式配置管理员凭据与 API 密钥（回车自动生成随机 Key）
-5. 提交 PM2 服务守护并设置开机自启
+4. 交互式配置域名与 HTTPS 证书（提示输入域名并校验 DNS；为空则生成自签 IP 证书，非空自动使用 acme.sh 签发官方 SSL 证书）
+5. 交互式配置管理员凭据与 API 密钥（回车自动生成随机 Key）
+6. 提交 PM2 服务守护并设置开机自启（默认强制使用 443 HTTPS 端口访问）
 
 ### 快速启动（已部署）
 

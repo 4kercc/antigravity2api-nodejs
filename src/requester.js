@@ -51,12 +51,20 @@ class FingerprintRequester {
   constructor(options = {}) {
     this.binDir = options.binDir || this._detectBinDir();
     this.binaryPath = options.binaryPath || this._detectBinary();
-    this.configPath = options.configPath || join(__dirname, 'bin', 'config.json');
+    this.configPath = options.configPath || this._detectConfigPath();
     this.defaults = {
       timeout: options.timeout || 30, // seconds
       proxy: options.proxy || null,
     };
     this.activeProcesses = new Set();
+  }
+
+  _detectConfigPath() {
+    const tlsConfig = join(this.binDir, 'tls_config.json');
+    if (existsSync(tlsConfig)) {
+      return tlsConfig;
+    }
+    return join(this.binDir, 'config.json');
   }
 
   _detectBinDir() {

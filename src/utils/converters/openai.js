@@ -138,7 +138,7 @@ export function generateRequestBody(openaiMessages, modelName, parameters, opena
   return buildRequestBody({
     contents: openaiMessageToAntigravity(filteredMessages, enableThinking, actualModelName, token.sessionId, hasTools),
     tools: tools,
-    generationConfig: generateGenerationConfig(parameters, enableThinking, actualModelName),
+    generationConfig: generateGenerationConfig(parameters, enableThinking, actualModelName, modelName),
     sessionId: token.sessionId,
     systemInstruction: mergedSystemInstruction
   }, token, actualModelName);

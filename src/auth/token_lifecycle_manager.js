@@ -3,6 +3,7 @@ import { OAUTH_CONFIG } from '../constants/oauth.js';
 import { TOKEN_REFRESH_BUFFER } from '../constants/index.js';
 import { TokenError } from '../utils/errors.js';
 import requesterManager from '../utils/requesterManager.js';
+import warpManager from '../utils/warpManager.js';
 
 /**
  * Token 生命周期管理类
@@ -68,6 +69,20 @@ class TokenLifecycleManager {
       const message = typeof rawBody === 'string' 
         ? rawBody 
         : (rawBody?.error?.message || '刷新 token 失败');
+
+      // 如果遇到网络连接阻断、IP受限或地区拒绝等错误，自动触发 WARP 重启换 IP
+      const isNetworkOrGeoError = 
+        statusCode === 400 || 
+        statusCode === 403 || 
+        message.includes('not supported') ||
+        message.includes('ECONNREFUSED') ||
+        message.includes('ETIMEDOUT') ||
+        message.includes('timeout');
+
+      if (isNetworkOrGeoError) {
+        warpManager.restartWarp(`Token [${tokenId}] 刷新异常 (${message})`).catch(() => {});
+      }
+
       throw new TokenError(message, tokenId, statusCode);
     }
   }

@@ -1,7 +1,10 @@
 {
   "server": {
-    "port": 8045,
+    "port": 443,
     "host": "0.0.0.0",
+    "ssl": true,
+    "domain": "",
+    "autoRenewCert": true,
     "maxRequestSize": "500mb",
     "heartbeatInterval": 15000,
     "memoryThreshold": 50
