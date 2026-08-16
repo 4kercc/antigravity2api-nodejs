@@ -177,7 +177,13 @@ function renderUsageQueryResult(data) {
             ? `<span style="background: rgba(16,185,129,0.15); color: #10b981; padding: 4px 10px; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;">✓ 正常可用</span>` 
             : `<span style="background: rgba(100,116,139,0.15); color: #64748b; padding: 4px 10px; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;">已禁用</span>`);
 
-    const lastUsedFormatted = data.lastUsedAt ? new Date(data.lastUsedAt).toLocaleString() : '未使用';
+    let lastDateStr = '-';
+    let lastTimeStr = '未使用';
+    if (data.lastUsedAt) {
+        const d = new Date(data.lastUsedAt);
+        lastDateStr = d.toLocaleDateString();
+        lastTimeStr = d.toTimeString().split(' ')[0]; // 包含 HH:mm:ss 精确到秒
+    }
 
     // 渲染模型分布列表
     const modelsList = data.models || [];
@@ -289,13 +295,14 @@ function renderUsageQueryResult(data) {
                 </div>
             </div>
 
-            <!-- 最后活跃时间 -->
+            <!-- 最后活跃时间 (日期 + 时分秒两行清晰展示) -->
             <div style="background: var(--card); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 0.85rem; text-align: left; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
                 <div style="font-size: 0.82rem; color: var(--text-light); display: flex; align-items: center; gap: 4px; white-space: nowrap;">
                     <span>⏱️</span> <span>最后活跃时间</span>
                 </div>
-                <div style="margin: 0.5rem 0 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    <span style="font-size: 1.05rem; font-weight: 700; color: var(--text); line-height: 1.3;">${lastUsedFormatted}</span>
+                <div style="margin: 0.4rem 0 0.2rem 0; display: flex; flex-direction: column; gap: 1px;">
+                    <div style="font-size: 1.05rem; font-weight: 700; color: var(--text); font-family: 'Ubuntu Mono', monospace; line-height: 1.2;">${escapeHtml(lastDateStr)}</div>
+                    <div style="font-size: 1.15rem; font-weight: 800; color: var(--text); font-family: 'Ubuntu Mono', monospace; line-height: 1.2; letter-spacing: -0.2px;">${escapeHtml(lastTimeStr)}</div>
                 </div>
                 <div style="font-size: 0.72rem; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">创建于: ${data.createdAt ? new Date(data.createdAt).toLocaleDateString() : '-'}</div>
             </div>
