@@ -101,6 +101,7 @@ export const handleGeminiModelDetail = async (req, res) => {
  */
 export const handleGeminiRequest = async (req, res, modelName, isStream) => {
   const safeRetries = getSafeRetries(config.retryTimes);
+  if (modelName) res.locals.model = modelName;
 
   try {
     const body = req.body || {};

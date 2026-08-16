@@ -60,6 +60,7 @@ export const handleGeminiCliRequest = async (req, res, forceFormat = null) => {
 
     // 保存原始请求的模型名称用于响应
     const responseModel = requestBody.model || actualModel;
+    res.locals.model = responseModel;
 
     const { id, created } = createResponseMeta();
     const safeRetries = getSafeRetries(config.retryTimes);

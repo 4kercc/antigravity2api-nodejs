@@ -191,7 +191,7 @@ class ApiKeyManager {
     return true;
   }
 
-  recordUsage(keyId, usage) {
+  recordUsage(keyId, usage, model = 'unknown') {
     if (!keyId) return;
     const target = this.keys.find(k => k.id === keyId);
     if (!target) return;
@@ -201,7 +201,10 @@ class ApiKeyManager {
     const totalTokens = Number(usage?.total_tokens || usage?.totalTokenCount || (inputTokens + outputTokens));
 
     if (!target.usage) {
-      target.usage = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      target.usage = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, models: {} };
+    }
+    if (!target.usage.models) {
+      target.usage.models = {};
     }
 
     target.usage.requests = (target.usage.requests || 0) + 1;
@@ -210,6 +213,24 @@ class ApiKeyManager {
     target.usage.totalTokens = (target.usage.totalTokens || 0) + totalTokens;
     target.lastUsedAt = new Date().toISOString();
 
+    // 记录模型维度数据
+    const modelKey = String(model || 'unknown').trim();
+    if (!target.usage.models[modelKey]) {
+      target.usage.models[modelKey] = {
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        lastUsedAt: null
+      };
+    }
+    const m = target.usage.models[modelKey];
+    m.requests += 1;
+    m.inputTokens += inputTokens;
+    m.outputTokens += outputTokens;
+    m.totalTokens += totalTokens;
+    m.lastUsedAt = target.lastUsedAt;
+
     // 校验记录后是否达到 Token 消耗阈值
     if (target.maxTokens && target.maxTokens > 0 && target.usage.totalTokens >= target.maxTokens) {
       target.enabled = false;
@@ -217,6 +238,70 @@ class ApiKeyManager {
     }
 
     this.saveToFile();
+  }
+
+  /**
+   * 公开的使用量查询（安全脱敏）
+   * @param {string} rawKey 
+   * @returns {Object|null}
+   */
+  queryUsageReport(rawKey) {
+    if (!rawKey || typeof rawKey !== 'string') return null;
+    const cleanKey = rawKey.trim();
+    const target = this.keys.find(k => k.key === cleanKey);
+    if (!target) return null;
+
+    const totalTokens = target.usage?.totalTokens || 0;
+    const inputTokens = target.usage?.inputTokens || 0;
+    const outputTokens = target.usage?.outputTokens || 0;
+    const requests = target.usage?.requests || 0;
+    const maxTokens = target.maxTokens || 0;
+
+    let isExceeded = false;
+    let percentage = 0;
+    if (maxTokens > 0) {
+      percentage = Math.min(100, Math.round((totalTokens / maxTokens) * 1000) / 10);
+      if (totalTokens >= maxTokens) {
+        isExceeded = true;
+      }
+    }
+
+    // 格式化各模型消耗
+    const modelsData = [];
+    if (target.usage?.models) {
+      Object.entries(target.usage.models).forEach(([modelName, stats]) => {
+        const modelTotal = stats.totalTokens || 0;
+        const modelPct = totalTokens > 0 ? ((modelTotal / totalTokens) * 100).toFixed(1) : '0.0';
+        modelsData.push({
+          name: modelName,
+          requests: stats.requests || 0,
+          inputTokens: stats.inputTokens || 0,
+          outputTokens: stats.outputTokens || 0,
+          totalTokens: modelTotal,
+          percentage: modelPct,
+          lastUsedAt: stats.lastUsedAt
+        });
+      });
+    }
+
+    // 按消耗从大到小排序
+    modelsData.sort((a, b) => b.totalTokens - a.totalTokens);
+
+    return {
+      name: target.name,
+      maskedKey: target.key.length > 10 ? (target.key.substring(0, 6) + '...' + target.key.substring(target.key.length - 4)) : '••••••••',
+      enabled: target.enabled,
+      isExceeded,
+      maxTokens,
+      totalTokens,
+      inputTokens,
+      outputTokens,
+      requests,
+      percentage,
+      createdAt: target.createdAt,
+      lastUsedAt: target.lastUsedAt,
+      models: modelsData
+    };
   }
 
   getOverallStats() {

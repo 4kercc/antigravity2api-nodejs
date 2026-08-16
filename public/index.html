@@ -248,6 +248,11 @@
                 </div>
                 <button type="submit">登录</button>
             </form>
+            <div style="text-align: center; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px dashed var(--border);">
+                <button type="button" onclick="showUsageQueryModal()" style="background: none; border: none; color: var(--primary); font-size: 0.88rem; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; box-shadow: none; padding: 0.35rem 0.5rem; min-height: auto; width: auto; font-weight: 500;">
+                    <span>📊</span> <span>API 密钥额度与使用量查询</span>
+                </button>
+            </div>
         </div>
 
         <!-- 主内容 -->
@@ -966,6 +971,7 @@
     <script src="js/geminicli.js" defer></script>
     <script src="js/config.js" defer></script>
     <script src="js/security.js" defer></script>
+    <script src="js/usage-query.js" defer></script>
     <script src="js/logs.js" defer></script>
     <script src="js/main.js" defer></script>
 </body>

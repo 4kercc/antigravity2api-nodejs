@@ -43,6 +43,8 @@ export const handleOpenAIRequest = async (req, res) => {
       return res.status(400).json({ error: 'model is required' });
     }
 
+    res.locals.model = model;
+
     const isImageModel = model.includes('-image');
     let token = null;
     let tokenId = null;

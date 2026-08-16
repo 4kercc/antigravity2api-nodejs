@@ -52,6 +52,7 @@ export const createClaudeStreamEvent = (eventType, data) => {
 export const handleClaudeRequest = async (req, res, isStream) => {
   const body = req.body || {};
   const { messages, model, system, tools, ...rawParams } = body;
+  if (model) res.locals.model = model;
 
   try {
     const validation = validateIncomingChatRequest('claude', body);

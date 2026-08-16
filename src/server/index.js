@@ -124,7 +124,7 @@ app.use((req, res, next) => {
   // 请求完成时如果记录了 tokenUsage，自动累加到当前 API Key
   res.on('finish', () => {
     if (res.locals.tokenUsage && req.apiKeyInfo?.id) {
-      apiKeyManager.recordUsage(req.apiKeyInfo.id, res.locals.tokenUsage);
+      apiKeyManager.recordUsage(req.apiKeyInfo.id, res.locals.tokenUsage, res.locals.model || 'unknown');
     }
   });
 
@@ -146,6 +146,24 @@ app.use('/v1', claudeRouter);
 app.use('/cli', cliRouter);
 
 // ==================== 系统端点 ====================
+
+// 公开使用量查询端点（输入 API Key 查询使用量与模型分布）
+app.post('/api/check-usage', (req, res) => {
+  const { key } = req.body || {};
+  if (!key || typeof key !== 'string' || !key.trim()) {
+    return res.status(400).json({ success: false, message: '请输入要查询的 API 密钥 (Key)' });
+  }
+
+  const report = apiKeyManager.queryUsageReport(key);
+  if (!report) {
+    return res.status(404).json({ success: false, message: '未找到该 API 密钥，请检查输入是否正确' });
+  }
+
+  res.json({
+    success: true,
+    data: report
+  });
+});
 
 // 内存监控端点
 app.get('/v1/memory', (req, res) => {
