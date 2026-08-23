@@ -531,7 +531,7 @@ export async function checkAndUpdateVersion() {
 
       log.info(`✓ 版本已更新为 ${latestVersion}`);
     } else {
-      log.info(`当前版本 ${currentVersion} 已是最新`);
+      log.info(`当前客户端版本 ${currentVersion} 已是最新 (官方更新器最新: ${latestVersion})`);
     }
   } catch (err) {
     if (err.name === 'AbortError') {
