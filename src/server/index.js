@@ -319,6 +319,19 @@ server.on('error', (error) => {
   }
 });
 
+// 处理客户端 Socket 异常，安全销毁连接，防止 Node.js 触发 Warning: An error event has already been emitted on the socket
+server.on('clientError', (err, socket) => {
+  if (err.code === 'ECONNRESET' || !socket.writable) {
+    socket.destroy();
+    return;
+  }
+  try {
+    socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+  } catch {
+    socket.destroy();
+  }
+});
+
 // ==================== 优雅关闭 ====================
 const shutdown = () => {
   logger.info('正在关闭服务器...');
