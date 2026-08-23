@@ -249,11 +249,17 @@ if (useSSL) {
     // 暴露热重载 SSL 上下文函数
     server.reloadSSLContext = () => {
       try {
+        const certData = fs.readFileSync(certPaths.certPath);
+        const keyData = fs.readFileSync(certPaths.keyPath);
         const newContext = tls.createSecureContext({
-          cert: fs.readFileSync(certPaths.certPath),
-          key: fs.readFileSync(certPaths.keyPath)
+          cert: certData,
+          key: keyData
         });
         server.setSecureContext(newContext);
+        // 更新默认证书配置，确保后续新建 TLS 连接平滑生效
+        if (server._sharedCreds) {
+          server._sharedCreds.context = newContext.context;
+        }
         logger.info('HTTPS SSL 证书上下文已成功热重载');
       } catch (e) {
         logger.error('HTTPS SSL 证书上下文热重载失败:', e.message);
