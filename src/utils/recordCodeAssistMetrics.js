@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto"
+import config from '../config/config.js';
 
 function generateCreatedAt() {
   const now = new Date();
@@ -17,7 +18,7 @@ function buildRecordCodeAssistMetricsBody(token, id) {
     requestId: randomUUID(),
     metadata: {
       ideType: "ANTIGRAVITY",
-      ideVersion: "1.18.3",
+      ideVersion: config.api?.ideVersion || "2.1.1",
       platform: "WINDOWS_AMD64"
     },
     metrics: [
