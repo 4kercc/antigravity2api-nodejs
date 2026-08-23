@@ -18,7 +18,7 @@ function buildRecordCodeAssistMetricsBody(token, id) {
     requestId: randomUUID(),
     metadata: {
       ideType: "ANTIGRAVITY",
-      ideVersion: config.api?.ideVersion || "2.1.1",
+      ideVersion: config.api?.ideVersion || "2.5.5",
       platform: "WINDOWS_AMD64"
     },
     metrics: [

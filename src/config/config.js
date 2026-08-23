@@ -288,7 +288,7 @@ const DEFAULT_API_CONFIGS = {
 const DEFAULT_UPSTREAM_CANDIDATES = ['production', 'daily', 'sandbox'];
 
 // 默认 IDE 版本号（config.json 中无版本记录时使用）
-const DEFAULT_IDE_VERSION = '2.1.1';
+const DEFAULT_IDE_VERSION = '2.5.5';
 
 const DEFAULT_API_UNLEASH = {
     register: "https://antigravity-unleash.goog/api/client/register",
