@@ -261,6 +261,15 @@ async function handleApiError(error, token, dumpId = null) {
     await dumpFinalRawResponse(dumpId, String(errorBody ?? ''));
   }
 
+  const errorStr = String(errorBody ?? '');
+
+  // 遇到地区限制/IP不受支持时，自动触发 WARP 重启更换出口 IP
+  if (errorStr.includes('User location is not supported') || errorStr.includes('location is not supported')) {
+    import('../utils/warpManager.js').then(m => {
+      m.default.restartWarp('Google API 地区受限 (User location is not supported)').catch(() => {});
+    });
+  }
+
   if (status === 403) {
     if (isCallerDoesNotHavePermission(errorBody)) {
       throw createApiError(`超出模型最大上下文。错误详情: ${errorBody}`, status, errorBody);
