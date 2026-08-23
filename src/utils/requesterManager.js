@@ -179,11 +179,14 @@ class RequesterManager {
     const code = error?.code || error?.cause?.code;
     if (code === 'ERR_CONFIG') return false;
     if (code === 'ECONNABORTED' || code === 'ERR_NETWORK') return true;
-    const message = error?.message || '';
+    const message = (error?.message || '').toLowerCase();
     return message.includes('dial tcp') ||
       message.includes('missing address') ||
       message.includes('no such host') ||
       message.includes('connection refused') ||
+      message.includes('protocol mismatch') ||
+      message.includes('tls') ||
+      message.includes('handshake') ||
       message.includes('timeout');
   }
 

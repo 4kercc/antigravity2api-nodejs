@@ -12,6 +12,36 @@ import warpManager from '../utils/warpManager.js';
 class TokenLifecycleManager {
   constructor(store) {
     this.store = store;
+    // 记录 token 刷新失败冷却时间 (tokenId -> 冷却结束时间戳)
+    this.refreshCooldowns = new Map();
+    // 刷新失败冷却时间: 30秒
+    this.REFRESH_FAIL_COOLDOWN_MS = 30 * 1000;
+  }
+
+  /**
+   * 检查指定 Token 是否处于刷新失败冷却中
+   * @param {string} tokenId
+   * @returns {boolean}
+   */
+  isRefreshInCooldown(tokenId) {
+    if (!tokenId) return false;
+    const until = this.refreshCooldowns.get(tokenId);
+    if (!until) return false;
+    if (Date.now() >= until) {
+      this.refreshCooldowns.delete(tokenId);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * 设置指定 Token 的刷新冷却
+   * @param {string} tokenId
+   * @param {number} durationMs
+   */
+  setRefreshCooldown(tokenId, durationMs = this.REFRESH_FAIL_COOLDOWN_MS) {
+    if (!tokenId) return;
+    this.refreshCooldowns.set(tokenId, Date.now() + durationMs);
   }
 
   /**
@@ -34,6 +64,11 @@ class TokenLifecycleManager {
    * @throws {TokenError} 刷新失败时抛出异常
    */
   async refreshToken(token, tokenId, silent = false) {
+    if (this.isRefreshInCooldown(tokenId)) {
+      const remainingSec = Math.ceil((this.refreshCooldowns.get(tokenId) - Date.now()) / 1000);
+      throw new TokenError(`Token 刷新处于冷却中（剩余 ${remainingSec} 秒），避免频繁重试导致 CPU 飙升`, tokenId, 429);
+    }
+
     if (!silent) {
       log.info(`正在刷新token: ${tokenId}`);
     }
@@ -46,7 +81,8 @@ class TokenLifecycleManager {
     });
 
     try {
-      const response = await requesterManager.fetch(OAUTH_CONFIG.TOKEN_URL, {
+      // 刷新 OAuth Token 使用原生 axios 请求（带有超时与代理设置），避免 TLS 指纹子进程协议不兼容
+      const response = await requesterManager._axiosFetch(OAUTH_CONFIG.TOKEN_URL, {
         method: 'POST',
         headers: {
           'Host': 'oauth2.googleapis.com',
@@ -62,25 +98,42 @@ class TokenLifecycleManager {
       token.expires_in = response.data.expires_in;
       token.timestamp = Date.now();
       
+      // 刷新成功，清除可能存在的刷新冷却
+      this.refreshCooldowns.delete(tokenId);
+
       return token;
     } catch (error) {
+      // 刷新失败，设置 30 秒冷却，防止密集请求死循环
+      this.setRefreshCooldown(tokenId);
+
       const statusCode = error.status || 500;
       const rawBody = error.message;
       const message = typeof rawBody === 'string' 
         ? rawBody 
-        : (rawBody?.error?.message || '刷新 token 失败');
+        : (rawBody?.error?.message || (typeof rawBody === 'object' ? JSON.stringify(rawBody) : '刷新 token 失败'));
 
-      // 如果遇到网络连接阻断、IP受限或地区拒绝等错误，自动触发 WARP 重启换 IP
+      const isInvalidGrant = 
+        message.includes('invalid_grant') || 
+        message.includes('Token has been expired or revoked') ||
+        message.includes('deleted');
+
+      // 如果是 Google 明确返回 400 invalid_grant（Token 已被用户撤销或已彻底过期），判定账号失效
+      if (statusCode === 400 && isInvalidGrant) {
+        log.warn(`Token [${tokenId}] 已被 Google 标记为无效 (invalid_grant)，该账号已永久失效`);
+        throw new TokenError(message, tokenId, 400);
+      }
+
+      // 如果遇到网络连接阻断、IP受限、地区拒绝或 protocol mismatch 等错误，自动触发 WARP 重启换 IP
       const isNetworkOrGeoError = 
-        statusCode === 400 || 
         statusCode === 403 || 
         message.includes('not supported') ||
+        message.includes('protocol mismatch') ||
         message.includes('ECONNREFUSED') ||
         message.includes('ETIMEDOUT') ||
         message.includes('timeout');
 
       if (isNetworkOrGeoError) {
-        warpManager.restartWarp(`Token [${tokenId}] 刷新异常 (${message})`).catch(() => {});
+        warpManager.restartWarp(`Token [${tokenId}] 刷新网络异常 (${message})`).catch(() => {});
       }
 
       throw new TokenError(message, tokenId, statusCode);
@@ -98,7 +151,9 @@ class TokenLifecycleManager {
       await this.refreshToken(token, tokenId, true);
       return 'success';
     } catch (error) {
-      if (error.statusCode === 403 || error.statusCode === 400) {
+      // 只有在 Google 明确返回 400 invalid_grant 时，才判定为账号失效并自动禁用
+      // 网络问题、超时或代理阻断不应直接禁用账号
+      if (error.statusCode === 400 && String(error.message).includes('invalid_grant')) {
         return 'disable';
       }
       return 'skip';

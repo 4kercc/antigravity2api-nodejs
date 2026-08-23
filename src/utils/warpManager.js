@@ -29,16 +29,16 @@ class WarpManager {
     this.isRestarting = true;
     this.lastRestartTime = now;
 
-    log.warn(`[WARP] ⚡ 检测到异常: ${reason}，正在执行自动重启命令: warp restart ...`);
+    log.warn(`[WARP] ⚡ 检测到异常: ${reason}，正在执行自动重启命令: warp restart && pm2 restart all ...`);
 
     return new Promise((resolve) => {
-      exec('warp restart', (error, stdout, stderr) => {
+      exec('warp restart; pm2 restart all', (error, stdout, stderr) => {
         this.isRestarting = false;
         if (error) {
           log.error(`[WARP] 重启失败: ${error.message}`);
           resolve(false);
         } else {
-          log.info(`[WARP] ✓ WARP 重启命令执行成功！${stdout ? stdout.trim() : ''}`);
+          log.info(`[WARP] ✓ WARP 与 PM2 重启命令执行成功！${stdout ? stdout.trim() : ''}`);
           resolve(true);
         }
       });

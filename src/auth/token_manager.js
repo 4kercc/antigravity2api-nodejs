@@ -278,18 +278,31 @@ class TokenManager {
    * @param {Object} options - 选择选项
    * @param {boolean} options.allowQuotaReset - 是否允许重置本地额度标记
    * @param {string|null} options.excludeTokenId - 有其他候选时排除指定 token
+   * @param {Set<string>} options.excludedTokenIds - 针对刷新失败等场景累计排除的 Token 集合
+   * @param {number} options.depth - 当前递归深度
    * @returns {Promise<Object|null>} token 对象或 null
    * @private
    */
-  async _selectToken(modelId, { allowQuotaReset = true, excludeTokenId = null } = {}) {
+  async _selectToken(modelId, { allowQuotaReset = true, excludeTokenId = null, excludedTokenIds = new Set(), depth = 0 } = {}) {
     await this._ensureInitialized();
 
     let availableTokens = await this._getAvailableTokenEntries(modelId, { allowQuotaReset });
-    if (excludeTokenId && availableTokens.length > 1) {
-      availableTokens = availableTokens.filter(({ tokenId }) => tokenId !== excludeTokenId);
+    
+    // 合并排除列表
+    const allExcluded = new Set(excludedTokenIds);
+    if (excludeTokenId) {
+      allExcluded.add(excludeTokenId);
     }
 
-    const selected = this.strategy.selectToken(availableTokens);
+    if (allExcluded.size > 0 && availableTokens.length > allExcluded.size) {
+      availableTokens = availableTokens.filter(({ tokenId }) => !allExcluded.has(tokenId));
+    }
+
+    // 优先过滤掉正处于刷新冷却中（刚刚刷新报错）的 Token
+    const nonCooldownTokens = availableTokens.filter(({ tokenId }) => !this.lifecycle.isRefreshInCooldown(tokenId));
+    const tokenCandidates = nonCooldownTokens.length > 0 ? nonCooldownTokens : availableTokens;
+
+    const selected = this.strategy.selectToken(tokenCandidates);
     if (!selected) return null;
 
     const { token, tokenId } = selected;
@@ -299,11 +312,26 @@ class TokenManager {
         await this.lifecycle.refreshToken(token, tokenId);
         await this._persistToken(token);
       } catch (error) {
-        log.error(`刷新token失败: ${error.message}`);
-        if (error.statusCode === 403 || error.statusCode === 400) {
+        log.error(`刷新token失败 [${tokenId}]: ${error.message}`);
+        // 仅在 Google 明确返回 400 invalid_grant 时禁用账号，网络或代理问题不禁用
+        if (error.statusCode === 400 && String(error.message).includes('invalid_grant')) {
           await this.disableToken(token);
         }
-        return this._selectToken(modelId, { allowQuotaReset: false, excludeTokenId });
+        
+        // 递归深度保护：避免所有 token 均失效时发生无限递归爆栈
+        if (depth >= (this.pool.size() || 10)) {
+          log.warn(`[TokenManager] 所有候选 Token 均尝试刷新失败，终止 _selectToken 循环`);
+          return null;
+        }
+
+        const nextExcluded = new Set(allExcluded);
+        nextExcluded.add(tokenId);
+
+        return this._selectToken(modelId, {
+          allowQuotaReset: false,
+          excludedTokenIds: nextExcluded,
+          depth: depth + 1
+        });
       }
     }
 
