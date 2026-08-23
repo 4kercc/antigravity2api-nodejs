@@ -1665,12 +1665,13 @@ router.put('/warp/auto-restart', cookieAuthMiddleware, async (req, res) => {
 router.post('/warp/use-proxy', cookieAuthMiddleware, async (req, res) => {
   try {
     const warpProxy = 'socks5://127.0.0.1:40000';
-    updateEnvFile({ PROXY: warpProxy });
+    updateEnvFile(envPath, { PROXY: warpProxy });
     process.env.PROXY = warpProxy;
     config.proxy = warpProxy;
     await reloadConfig();
     res.json({ success: true, message: '已成功将系统代理设置为 WARP SOCKS5 (socks5://127.0.0.1:40000)' });
   } catch (error) {
+    logger.error('设置 WARP 代理失败:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -1682,7 +1683,7 @@ router.post('/warp/quick-setup', cookieAuthMiddleware, async (req, res) => {
     if (result.success) {
       // 自动设置代理
       const warpProxy = 'socks5://127.0.0.1:40000';
-      updateEnvFile({ PROXY: warpProxy });
+      updateEnvFile(envPath, { PROXY: warpProxy });
       process.env.PROXY = warpProxy;
       config.proxy = warpProxy;
       await reloadConfig();
@@ -1692,6 +1693,7 @@ router.post('/warp/quick-setup', cookieAuthMiddleware, async (req, res) => {
       res.status(500).json({ success: false, message: result.message });
     }
   } catch (error) {
+    logger.error('一键安装 WARP 失败:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });

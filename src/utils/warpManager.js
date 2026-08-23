@@ -54,7 +54,24 @@ class WarpManager {
         // 2. 检测 40000 端口连通性
         const portOpen = await this.checkPort(40000, '127.0.0.1');
 
-        // 3. 通过 SOCKS5 代理探测出口 IP 与归属地
+        // 3. 检测系统是否开启了全局透明代理 / iptables 劫持（红灯告警，防止冲突）
+        let transparentProxyActive = false;
+        let transparentProxyDetails = '';
+        try {
+          const natCheck = await new Promise((resCheck) => {
+            exec('pgrep -x redsocks 2>/dev/null || iptables -t nat -L WARP_GOOGLE -n 2>/dev/null', (err, stdout) => {
+              if (stdout && (stdout.includes('WARP_GOOGLE') || stdout.trim().length > 0)) {
+                resCheck({ active: true, output: stdout.trim() });
+              } else {
+                resCheck({ active: false, output: '' });
+              }
+            });
+          });
+          transparentProxyActive = natCheck.active;
+          transparentProxyDetails = natCheck.output;
+        } catch {}
+
+        // 4. 通过 SOCKS5 代理探测出口 IP 与归属地
         let ipInfo = null;
         if (portOpen) {
           try {
@@ -99,6 +116,8 @@ class WarpManager {
           portOpen,
           port: 40000,
           rawStatus: rawStatus || (isInstalled ? 'Unknown' : 'Not Installed'),
+          transparentProxyActive,
+          transparentProxyDetails,
           ipInfo,
           proxyConfigured: config.proxy === 'socks5://127.0.0.1:40000',
           autoRestartEnabled: config.warp?.autoRestart !== false

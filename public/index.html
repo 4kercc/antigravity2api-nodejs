@@ -618,6 +618,12 @@
 
                                         <!-- WARP 状态卡片 -->
                                         <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
+                                            <!-- 透明代理/iptables 冲突警告横幅 -->
+                                            <div id="warpConflictWarning" style="display: none; background: #fef2f2; border: 1px solid #f87171; color: #991b1b; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem;">
+                                                ⚠️ <strong>检测到系统开启了 iptables 透明代理劫持！</strong><br>
+                                                这会导致流量在 SOCKS5 (40000) 代理下发生双重代理冲突与连接 EOF 断开。建议在服务器终端运行 <code>warp-google stop</code> 关闭透明代理。
+                                            </div>
+
                                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                                                 <div style="display: flex; align-items: center; gap: 8px;">
                                                     <span style="font-size: 1.1rem;">⚡</span>

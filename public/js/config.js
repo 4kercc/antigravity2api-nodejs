@@ -644,6 +644,7 @@ async function loadWarpStatus() {
     const countryEl = document.getElementById('warpStatusCountry');
     const orgEl = document.getElementById('warpStatusOrg');
     const autoRestartCheckbox = document.getElementById('warpAutoRestartCheckbox');
+    const conflictWarningEl = document.getElementById('warpConflictWarning');
 
     if (installedEl) installedEl.textContent = '检测中...';
 
@@ -675,6 +676,9 @@ async function loadWarpStatus() {
             }
             if (autoRestartCheckbox) {
                 autoRestartCheckbox.checked = data.autoRestartEnabled !== false;
+            }
+            if (conflictWarningEl) {
+                conflictWarningEl.style.display = data.transparentProxyActive ? 'block' : 'none';
             }
         }
     } catch (err) {
