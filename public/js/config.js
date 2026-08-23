@@ -203,6 +203,10 @@ async function loadConfig() {
             loadRotationStatus();
             // 加载 SSL 证书状态
             loadSSLCertInfo();
+            // 加载 WARP 状态
+            if (typeof loadWarpStatus === 'function') {
+                loadWarpStatus();
+            }
 
             // 默认只显示当前激活的设置分区（便于后续扩展）
             if (typeof setActiveSettingSection === 'function') {
@@ -627,6 +631,133 @@ async function testProxyConnectivity() {
             btn.disabled = false;
             btn.textContent = origText;
         }
+    }
+}
+
+// ==================== Cloudflare WARP 管理面板前端逻辑 ====================
+
+async function loadWarpStatus() {
+    const installedEl = document.getElementById('warpStatusInstalled');
+    const connectedEl = document.getElementById('warpStatusConnected');
+    const portEl = document.getElementById('warpStatusPort');
+    const ipEl = document.getElementById('warpStatusIP');
+    const countryEl = document.getElementById('warpStatusCountry');
+    const orgEl = document.getElementById('warpStatusOrg');
+    const autoRestartCheckbox = document.getElementById('warpAutoRestartCheckbox');
+
+    if (installedEl) installedEl.textContent = '检测中...';
+
+    try {
+        const response = await authFetch('/admin/warp/status');
+        const res = await response.json();
+        if (res.success && res.data) {
+            const data = res.data;
+            if (installedEl) {
+                installedEl.textContent = data.installed ? '已安装' : '未安装';
+                installedEl.style.color = data.installed ? '#10b981' : '#ef4444';
+            }
+            if (connectedEl) {
+                connectedEl.textContent = data.connected ? '已连接' : '未连接';
+                connectedEl.style.color = data.connected ? '#10b981' : '#ef4444';
+            }
+            if (portEl) {
+                portEl.textContent = data.portOpen ? '正常监听 (40000)' : '未开启/未监听';
+                portEl.style.color = data.portOpen ? '#10b981' : '#f59e0b';
+            }
+            if (ipEl) {
+                ipEl.textContent = data.ipInfo?.ip || (data.portOpen ? '探测超时' : '-');
+            }
+            if (countryEl) {
+                countryEl.textContent = data.ipInfo?.country ? `${data.ipInfo.country} (${data.ipInfo.city || ''})` : '-';
+            }
+            if (orgEl) {
+                orgEl.textContent = data.ipInfo?.org || '-';
+            }
+            if (autoRestartCheckbox) {
+                autoRestartCheckbox.checked = data.autoRestartEnabled !== false;
+            }
+        }
+    } catch (err) {
+        console.error('加载 WARP 状态失败:', err);
+    }
+}
+
+async function useWarpProxyFast() {
+    showLoading('正在将代理快速设置为 WARP SOCKS5 (socks5://127.0.0.1:40000)...');
+    try {
+        const response = await authFetch('/admin/warp/use-proxy', { method: 'POST' });
+        const res = await response.json();
+        hideLoading();
+        if (res.success) {
+            showToast(res.message, 'success');
+            const proxyInput = document.getElementById('proxyInput') || document.querySelector('input[name="PROXY"]');
+            if (proxyInput) proxyInput.value = 'socks5://127.0.0.1:40000';
+            loadWarpStatus();
+        } else {
+            showToast(res.message || '设置失败', 'error');
+        }
+    } catch (err) {
+        hideLoading();
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+async function restartWarpAndRefreshIP() {
+    showLoading('正在触发 Cloudflare WARP 客户端重启并刷新出口 IP...');
+    try {
+        const response = await authFetch('/admin/warp/restart', { method: 'POST' });
+        const res = await response.json();
+        hideLoading();
+        if (res.success) {
+            showToast(res.message, 'success');
+            loadWarpStatus();
+        } else {
+            showToast(res.message || '重启失败', 'error');
+        }
+    } catch (err) {
+        hideLoading();
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+async function toggleWarpAutoRestart(enabled) {
+    try {
+        const response = await authFetch('/admin/warp/auto-restart', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ autoRestart: enabled })
+        });
+        const res = await response.json();
+        if (res.success) {
+            showToast(res.message, 'success');
+        } else {
+            showToast(res.message || '操作失败', 'error');
+        }
+    } catch (err) {
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+async function quickSetupWarpServer() {
+    if (!confirm('确认在服务器后台一键安装官方 Cloudflare WARP 客户端并配置 40000 端口及 200M 内存限额吗？')) {
+        return;
+    }
+    showLoading('正在服务器端安装与配置 Cloudflare WARP (耗时约 30~60 秒，请稍候)...');
+    try {
+        const response = await authFetch('/admin/warp/quick-setup', { method: 'POST' });
+        const res = await response.json();
+        hideLoading();
+        if (res.success) {
+            showToast(res.message, 'success');
+            const proxyInput = document.getElementById('proxyInput') || document.querySelector('input[name="PROXY"]');
+            if (proxyInput) proxyInput.value = 'socks5://127.0.0.1:40000';
+            loadWarpStatus();
+        } else {
+            showToast(res.message || '安装配置失败', 'error');
+        }
+    } catch (err) {
+        hideLoading();
+        showToast('请求失败: ' + err.message, 'error');
     }
 }
 

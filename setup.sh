@@ -228,9 +228,60 @@ else
     echo "JWT_SECRET=$RANDOM_JWT_SECRET" >> .env
 fi
 
-# 7. 检测并自动全局安装 PM2
+# 7. Cloudflare WARP 智能检测与可选一键配置 (SOCKS5: 127.0.0.1:40000)
 echo
-echo "[6/8] 检查并安装 PM2 进程管理器..."
+echo "[6/9] 检测 Cloudflare WARP 网络解锁组件..."
+WARP_DETECTED=0
+if command -v warp-cli &>/dev/null; then
+    WARP_STATUS=$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || echo "")
+    if [[ "$WARP_STATUS" == *"Connected"* ]]; then
+        WARP_DETECTED=1
+        echo "✓ 检测到系统已运行 Cloudflare WARP (已连接)"
+    else
+        echo "💡 检测到已安装 warp-cli，当前状态: ${WARP_STATUS:-未连接}"
+    fi
+fi
+
+read -p "是否配置/安装 Cloudflare WARP SOCKS5 代理(端口40000)以解锁 Google 地区限制？(y/N, 默认: y): " INSTALL_WARP_CHOICE
+INSTALL_WARP_CHOICE=${INSTALL_WARP_CHOICE:-y}
+
+if [[ "$INSTALL_WARP_CHOICE" =~ ^[Yy]$ ]]; then
+    if [ "$WARP_DETECTED" -eq 0 ]; then
+        echo "正在一键安装并配置 Cloudflare WARP 官方客户端 (SOCKS5 模式)..."
+        # 下载并安装官方 WARP (SOCKS_ONLY 纯净代理模式，绝不强制开启 iptables 全局劫持)
+        curl -sL https://raw.githubusercontent.com/4kercc/warp-google-unlock/main/warp-google.sh -o /tmp/warp-google-setup.sh
+        chmod +x /tmp/warp-google-setup.sh
+        
+        # 配置内存上限 200M (防止 OOM) 并设置代理端口 40000
+        if [ -d /etc/systemd/system ]; then
+            mkdir -p /etc/systemd/system/warp-svc.service.d/
+            cat > /etc/systemd/system/warp-svc.service.d/override.conf << 'EOF'
+[Service]
+MemoryMax=200M
+MemoryHigh=150M
+Restart=always
+EOF
+            systemctl daemon-reload 2>/dev/null
+        fi
+
+        # 执行安装 (纯净 SOCKS5 模式)
+        bash /tmp/warp-google-setup.sh || true
+        rm -f /tmp/warp-google-setup.sh
+    fi
+
+    # 在 .env 中预设 PROXY 变量
+    if grep -q "^#\? PROXY=" .env 2>/dev/null; then
+        sed -i.bak "s|^#\? PROXY=.*|PROXY=socks5://127.0.0.1:40000|" .env
+        rm -f .env.bak
+    else
+        echo "PROXY=socks5://127.0.0.1:40000" >> .env
+    fi
+    echo "✓ 已在 .env 中配置 PROXY=socks5://127.0.0.1:40000"
+fi
+
+# 8. 检测并自动全局安装 PM2
+echo
+echo "[7/9] 检查并安装 PM2 进程管理器..."
 if ! command -v pm2 &> /dev/null; then
     echo "正在全局安装 PM2..."
     npm install -g pm2
@@ -242,9 +293,9 @@ else
     echo "✓ PM2 已安装"
 fi
 
-# 8. 加入 PM2 服务与开机自启动
+# 9. 加入 PM2 服务与开机自启动
 echo
-echo "[7/8] 启动 PM2 进程守护并配置自启动..."
+echo "[8/9] 启动 PM2 进程守护并配置自启动..."
 # 清理死进程，确保以固定的绝对路径启动
 pm2 delete "$APP_NAME" > /dev/null 2>&1 || true
 

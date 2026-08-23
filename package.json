@@ -36,6 +36,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "protobufjs": "^8.0.0",
+    "socks-proxy-agent": "^10.1.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {

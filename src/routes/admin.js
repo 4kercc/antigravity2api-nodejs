@@ -24,6 +24,7 @@ import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
 import { getCertificateInfo, verifyDomainDNS, issueAcmeCert, generateSelfSignedCert, updateCustomCert, saveCertMeta } from '../utils/sslManager.js';
 import { get2FAConfig, save2FAConfig, generateSecret, generateTOTP, verifyTOTP, generateBackupCodes, consumeBackupCode } from '../utils/totpManager.js';
+import warpManager from '../utils/warpManager.js';
 import { server } from '../server/index.js';
 import dotenv from 'dotenv';
 
@@ -1613,6 +1614,83 @@ router.post('/certificate/renew', cookieAuthMiddleware, async (req, res) => {
     if (server && server.reloadSSLContext) server.reloadSSLContext();
 
     res.json({ success: true, message: `域名 ${targetDomain} 的 SSL 证书手动续期/重新签发成功！` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ==================== WARP 客户端管理端点 ====================
+
+// 获取 WARP 运行状态与出口 IP
+router.get('/warp/status', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const status = await warpManager.getStatus();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 手动重启 WARP 并刷新出口 IP
+router.post('/warp/restart', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const success = await warpManager.restartWarp('管理员手动触发重启');
+    if (success) {
+      const newStatus = await warpManager.getStatus();
+      res.json({ success: true, message: 'WARP 客户端重启并刷新出口 IP 成功！', data: newStatus });
+    } else {
+      res.status(429).json({ success: false, message: 'WARP 处于重启冷却中或已有任务执行，请稍后再试' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 一键配置/更新 WARP 自动自愈开关
+router.put('/warp/auto-restart', cookieAuthMiddleware, async (req, res) => {
+  const { autoRestart } = req.body;
+  const isEnabled = autoRestart !== false;
+  try {
+    const currentConfig = getConfigJson();
+    saveConfigJson({ warp: { ...currentConfig.warp, autoRestart: isEnabled } });
+    config.warp = config.warp || {};
+    config.warp.autoRestart = isEnabled;
+    res.json({ success: true, message: `已${isEnabled ? '开启' : '关闭'}网络异常自动重启换 IP` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 一键将 PROXY 设置为 socks5://127.0.0.1:40000
+router.post('/warp/use-proxy', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const warpProxy = 'socks5://127.0.0.1:40000';
+    updateEnvFile({ PROXY: warpProxy });
+    process.env.PROXY = warpProxy;
+    config.proxy = warpProxy;
+    await reloadConfig();
+    res.json({ success: true, message: '已成功将系统代理设置为 WARP SOCKS5 (socks5://127.0.0.1:40000)' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 一键安装配置 WARP 客户端 (SOCKS5 40000)
+router.post('/warp/quick-setup', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const result = await warpManager.quickSetup();
+    if (result.success) {
+      // 自动设置代理
+      const warpProxy = 'socks5://127.0.0.1:40000';
+      updateEnvFile({ PROXY: warpProxy });
+      process.env.PROXY = warpProxy;
+      config.proxy = warpProxy;
+      await reloadConfig();
+      const newStatus = await warpManager.getStatus();
+      res.json({ success: true, message: result.message, data: newStatus });
+    } else {
+      res.status(500).json({ success: false, message: result.message });
+    }
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

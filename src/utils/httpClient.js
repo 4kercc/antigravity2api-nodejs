@@ -3,6 +3,7 @@ import dns from 'dns';
 import http from 'http';
 import https from 'https';
 import { Readable } from 'stream';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 import config from '../config/config.js';
 
 // ==================== DNS & 代理统一配置 ====================
@@ -33,11 +34,28 @@ const httpsAgent = new https.Agent({
   keepAlive: true
 });
 
-// 统一构建代理配置
+// 统一构建代理 Agent 或 Axios 代理配置
+function getProxyAgent(proxyUrlStr) {
+  if (!proxyUrlStr) return null;
+  try {
+    const proxyUrl = new URL(proxyUrlStr);
+    if (proxyUrl.protocol.startsWith('socks')) {
+      return new SocksProxyAgent(proxyUrlStr);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function buildProxyConfig() {
   if (!config.proxy) return false;
   try {
     const proxyUrl = new URL(config.proxy);
+    // SOCKS 代理通过 SocksProxyAgent 处理，不走 axios 原生 http proxy 配置
+    if (proxyUrl.protocol.startsWith('socks')) {
+      return false;
+    }
     return {
       protocol: proxyUrl.protocol.replace(':', ''),
       host: proxyUrl.hostname,
@@ -64,13 +82,14 @@ export function buildAxiosRequestConfig({
   responseType,
   useChunked = false
 }) {
+  const socksAgent = getProxyAgent(config.proxy);
   const axiosConfig = {
     method,
     url,
     headers: { ...headers },
     timeout,
-    httpAgent,
-    httpsAgent,
+    httpAgent: socksAgent || httpAgent,
+    httpsAgent: socksAgent || httpsAgent,
     proxy: buildProxyConfig(),
     // 禁用自动设置 Content-Length，让 axios 使用 Transfer-Encoding: chunked
     maxContentLength: Infinity,

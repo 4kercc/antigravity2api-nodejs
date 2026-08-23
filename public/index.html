@@ -515,6 +515,7 @@
                                 <select class="settings-section-select" id="settingsSectionSelect"
                                     onchange="setActiveSettingSection(this.value, true)">
                                     <option value="section-server">🖥️ 服务器</option>
+                                    <option value="section-warp">🌐 网络与 WARP 代理</option>
                                     <option value="section-ssl">🔒 域名与证书</option>
                                     <option value="section-model">🎛️ 模型参数</option>
                                     <option value="section-rotation">🔄 轮询与性能</option>
@@ -523,6 +524,8 @@
                                 <div class="settings-nav-list">
                                     <button type="button" class="settings-nav-item" data-target="section-server"
                                         onclick="setActiveSettingSection('section-server', true)">🖥️ 服务器</button>
+                                    <button type="button" class="settings-nav-item" data-target="section-warp"
+                                        onclick="setActiveSettingSection('section-warp', true)">🌐 网络与 WARP 代理</button>
                                     <button type="button" class="settings-nav-item" data-target="section-ssl"
                                         onclick="setActiveSettingSection('section-ssl', true)">🔒 域名与证书</button>
                                     <button type="button" class="settings-nav-item" data-target="section-model"
@@ -603,6 +606,49 @@
                                                 <input type="text" name="PROXY" id="proxyInput" placeholder="socks5://127.0.0.1:40000 或 http://127.0.0.1:7890">
                                                 <button type="button" class="btn btn-info btn-sm" id="testProxyBtn" onclick="testProxyConnectivity()" style="white-space: nowrap;">⚡ 测试连通性</button>
                                             </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Cloudflare WARP 管理面板 -->
+                                    <div class="config-section" id="section-warp">
+                                        <h4>🌐 网络代理与 Cloudflare WARP 管理</h4>
+                                        <p style="font-size: 0.85rem; color: var(--text-muted, #64748b); margin-bottom: 12px;">
+                                            通过官方 Cloudflare WARP 客户端运行纯净 SOCKS5 代理模式（端口 <code>40000</code>），优雅解锁 Google API 地区受限与 IP 封锁。
+                                        </p>
+
+                                        <!-- WARP 状态卡片 -->
+                                        <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <span style="font-size: 1.1rem;">⚡</span>
+                                                    <strong style="font-size: 0.95rem;">WARP 代理状态</strong>
+                                                </div>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <button type="button" class="btn btn-info btn-sm" onclick="loadWarpStatus()">🔄 刷新状态</button>
+                                                </div>
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 0.85rem;">
+                                                <div>客户端安装: <span id="warpStatusInstalled" style="font-weight: bold;">-</span></div>
+                                                <div>连接状态: <span id="warpStatusConnected" style="font-weight: bold;">-</span></div>
+                                                <div>SOCKS5 (40000): <span id="warpStatusPort" style="font-weight: bold;">-</span></div>
+                                                <div>出口 IP: <span id="warpStatusIP" style="font-weight: bold; color: var(--primary);">-</span></div>
+                                                <div>出口国家/地区: <span id="warpStatusCountry" style="font-weight: bold;">-</span></div>
+                                                <div>归属运营商: <span id="warpStatusOrg">-</span></div>
+                                            </div>
+                                            <div class="form-group compact switch-group" style="margin-top: 12px; margin-bottom: 0; padding-top: 10px; border-top: 1px dashed #e2e8f0;">
+                                                <label>🛡️ 遭遇地区限制/网络阻断时自动重启换 IP (带 60s 冷却防护)</label>
+                                                <label class="switch">
+                                                    <input type="checkbox" id="warpAutoRestartCheckbox" onchange="toggleWarpAutoRestart(this.checked)">
+                                                    <span class="slider"></span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <!-- WARP 快捷操作按钮组 -->
+                                        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                            <button type="button" class="btn btn-success btn-sm" onclick="useWarpProxyFast()">⚡ 一键应用 WARP 代理 (socks5://127.0.0.1:40000)</button>
+                                            <button type="button" class="btn btn-warning btn-sm" onclick="restartWarpAndRefreshIP()">🔄 重启 WARP / 刷新出口 IP</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" onclick="quickSetupWarpServer()">🚀 服务器一键安装/配置 WARP</button>
                                         </div>
                                     </div>
 
