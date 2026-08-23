@@ -174,15 +174,15 @@ class WarpManager {
   async quickSetup() {
     return new Promise((resolve) => {
       const scriptUrl = 'https://raw.githubusercontent.com/4kercc/warp-google-unlock/main/warp-google.sh';
-      // 仅配置纯净 SOCKS5 代理模式，不开启 iptables 全局劫持
+      // 传递参数 1 直接触发安装流程，避免进入交互菜单阻塞超时
       const setupCmd = `
         curl -sL ${scriptUrl} -o /tmp/warp-setup.sh &&
         chmod +x /tmp/warp-setup.sh &&
         export SOCKS_ONLY=1 &&
-        bash /tmp/warp-setup.sh
+        bash /tmp/warp-setup.sh 1
       `.trim().replace(/\n\s+/g, ' ');
 
-      exec(setupCmd, { timeout: 120000 }, (error, stdout, stderr) => {
+      exec(setupCmd, { timeout: 180000 }, (error, stdout, stderr) => {
         if (error) {
           log.error(`[WARP] 一键安装配置失败: ${error.message}`);
           resolve({ success: false, message: error.message });

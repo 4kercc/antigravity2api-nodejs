@@ -264,8 +264,8 @@ EOF
             systemctl daemon-reload 2>/dev/null
         fi
 
-        # 执行安装 (纯净 SOCKS5 模式)
-        bash /tmp/warp-google-setup.sh || true
+        # 执行安装 (纯净 SOCKS5 模式，传递参数 1 自动安装)
+        bash /tmp/warp-google-setup.sh 1 || true
         rm -f /tmp/warp-google-setup.sh
     fi
 
