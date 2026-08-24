@@ -94,24 +94,40 @@ function show2FALoginModal(tempToken) {
             <div style="margin-top: 10px; font-size: 0.88rem; color: var(--text-light, #666); text-align: center;">
                 账号已开启 2FA 保护，请输入 6 位动态验证码或备用恢复码
             </div>
-            <div class="form-group compact" style="margin-top: 15px;">
-                <input type="text" id="login2FACodeInput" placeholder="6 位动态码或 8 位恢复码" style="letter-spacing: 4px; font-size: 1.1rem; text-align: center;" autofocus>
-            </div>
-            <div class="modal-actions" style="margin-top: 1.5rem;">
-                <button class="btn btn-secondary" id="cancelLogin2FABtn">取消</button>
-                <button class="btn btn-primary" id="confirmLogin2FABtn">验证并登录</button>
-            </div>
+            <form id="twoFactorLoginForm" style="margin-top: 15px;">
+                <div class="form-group compact">
+                    <input type="text" 
+                           id="login2FACodeInput" 
+                           name="totp" 
+                           autocomplete="one-time-code" 
+                           inputmode="numeric" 
+                           placeholder="6 位动态码或 8 位恢复码" 
+                           style="letter-spacing: 4px; font-size: 1.1rem; text-align: center;" 
+                           required 
+                           autofocus>
+                </div>
+                <div class="modal-actions" style="margin-top: 1.5rem;">
+                    <button type="button" class="btn btn-secondary" id="cancelLogin2FABtn">取消</button>
+                    <button type="submit" class="btn btn-primary" id="confirmLogin2FABtn">验证并登录</button>
+                </div>
+            </form>
         </div>
     `;
     document.body.appendChild(modal);
 
+    const form = modal.querySelector('#twoFactorLoginForm');
     const cancelBtn = modal.querySelector('#cancelLogin2FABtn');
-    const confirmBtn = modal.querySelector('#confirmLogin2FABtn');
     const codeInput = modal.querySelector('#login2FACodeInput');
 
     cancelBtn.addEventListener('click', () => modal.remove());
 
-    confirmBtn.addEventListener('click', async () => {
+    // 自动聚焦输入框
+    setTimeout(() => {
+        if (codeInput) codeInput.focus();
+    }, 100);
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
         const code = codeInput.value.trim();
         if (!code) {
             showToast('请输入验证码', 'warning');
@@ -138,6 +154,10 @@ function show2FALoginModal(tempToken) {
                 loadConfig();
             } else {
                 showToast(data.message || '验证码错误', 'error');
+                if (codeInput) {
+                    codeInput.value = '';
+                    codeInput.focus();
+                }
             }
         } catch (err) {
             hideLoading();
