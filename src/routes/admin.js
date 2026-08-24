@@ -1335,6 +1335,22 @@ router.get('/blocked-ips', cookieAuthMiddleware, async (req, res) => {
   }
 });
 
+// 手动封禁指定IP (加入黑名单)
+router.post('/block-ip', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const { ip, permanent = true, durationMs } = req.body;
+    if (!ip) {
+      return res.status(400).json({ success: false, message: 'IP地址必填' });
+    }
+    const cleanIp = String(ip).trim();
+    await ipBlockManager.blockIP(cleanIp, permanent, durationMs);
+    res.json({ success: true, message: `IP ${cleanIp} 已成功加入黑名单封禁！` });
+  } catch (error) {
+    logger.error('手动封禁IP失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // 解除IP封禁
 router.post('/unblock-ip', cookieAuthMiddleware, async (req, res) => {
   try {

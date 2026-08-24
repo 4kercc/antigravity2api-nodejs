@@ -964,9 +964,16 @@
                                             </ul>
                                         </div>
                                         <div class="blocked-ips-header">
-                                            <h5>封禁列表</h5>
+                                            <h5>封禁黑名单列表</h5>
                                             <button type="button" onclick="loadBlockedIPs()" class="btn btn-sm btn-info">🔄 刷新</button>
                                         </div>
+                                        
+                                        <!-- 手动添加黑名单输入框 -->
+                                        <div class="whitelist-input-group" style="margin-bottom: 12px;">
+                                            <input type="text" id="manualBlockIPInput" placeholder="输入要封禁的 IP 地址 (如: 129.213.151.234)" />
+                                            <button type="button" onclick="manualAddBlockIP()" class="btn btn-sm btn-danger">🚫 手动封禁 (黑名单)</button>
+                                        </div>
+
                                         <div id="blockedIPsList" class="blocked-ips-list">
                                             <div class="empty-state-small">加载中...</div>
                                         </div>

@@ -202,6 +202,26 @@ class IpBlockManager {
     }
   }
 
+  async blockIP(ip, permanent = true, durationMs = null) {
+    if (!ip) return false;
+    if (!this.initialized) await this.init();
+
+    const now = Date.now();
+    const tempDuration = durationMs || this.config.blocking.tempBlockDuration || 3600000;
+    
+    this.data.blocked_ips[ip] = {
+      permanent: permanent,
+      expiresAt: permanent ? 0 : (now + tempDuration),
+      violations: 999,
+      tempBlockCount: permanent ? 10 : 1,
+      lastViolation: now
+    };
+
+    await this.save();
+    logger.warn(`管理员手动封禁 IP: ${ip} (${permanent ? '永久封禁' : `临时封禁 ${Math.round(tempDuration/60000)} 分钟`})`);
+    return true;
+  }
+
   async unblock(ip) {
     if (!ip) return false;
     if (this.data.blocked_ips[ip]) {

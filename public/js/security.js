@@ -49,6 +49,74 @@ function renderBlockedIPs(blockedIPs) {
   }).join('');
 }
 
+async function manualAddBlockIP() {
+  const input = document.getElementById('manualBlockIPInput');
+  const ip = (input?.value || '').trim();
+
+  if (!ip) {
+    showToast('请输入要封禁的 IP 地址', 'warning');
+    return;
+  }
+
+  const ipPattern = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$|^([a-fA-F0-9:]+)$/;
+  if (!ipPattern.test(ip)) {
+    showToast('IP 地址格式不正确', 'warning');
+    return;
+  }
+
+  showLoading(`正在封禁 IP ${ip}...`);
+  try {
+    const response = await authFetch('/admin/block-ip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip, permanent: true })
+    });
+    const data = await response.json();
+    hideLoading();
+
+    if (data.success) {
+      showToast(data.message, 'success');
+      if (input) input.value = '';
+      loadBlockedIPs();
+    } else {
+      showToast(data.message || '封禁失败', 'error');
+    }
+  } catch (error) {
+    hideLoading();
+    showToast('请求失败: ' + error.message, 'error');
+  }
+}
+
+// 快速封禁 IP（供日志页面等跨模块直接调用）
+async function quickBlockIP(ip) {
+  if (!confirm(`🚨 确认立即将扫描/违规 IP [${ip}] 加入黑名单并永久拦截吗？`)) {
+    return;
+  }
+
+  showLoading(`正在封禁 IP [${ip}]...`);
+  try {
+    const response = await authFetch('/admin/block-ip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip, permanent: true })
+    });
+    const data = await response.json();
+    hideLoading();
+
+    if (data.success) {
+      showToast(`✓ IP [${ip}] 已成功加入黑名单封禁！`, 'success');
+      if (typeof loadBlockedIPs === 'function') {
+        loadBlockedIPs();
+      }
+    } else {
+      showToast(data.message || '封禁失败', 'error');
+    }
+  } catch (error) {
+    hideLoading();
+    showToast('封禁请求失败: ' + error.message, 'error');
+  }
+}
+
 async function unblockIP(ip) {
   if (!confirm(`确定要解除 ${ip} 的封禁吗？`)) return;
   
