@@ -956,11 +956,12 @@
                                             </label>
                                         </div>
                                         <div class="security-info">
-                                            <p>IP封禁机制：自动识别并封禁频繁违规的IP地址</p>
+                                            <p><strong>🛡️ Fail2ban 级智能防御机制</strong>：实时识别并拦截恶意探测与扫描 IP</p>
                                             <ul>
-                                                <li>5分钟内50次违规 → 临时封禁1小时</li>
-                                                <li>累计10次临时封禁 → 永久封禁</li>
-                                                <li>内网IP自动白名单（127.x、10.x、172.16-31.x、192.168.x）</li>
+                                                <li><strong>敏感扫描探测</strong>（如 .php、eval-stdin、phpunit、.env 等）：命中 2 次即刻临时封禁 1 小时</li>
+                                                <li><strong>普通 404 / 异常请求</strong>：5分钟内达到 10 次违规触发临时封禁</li>
+                                                <li><strong>累计封禁惩戒</strong>：累计 3 次临时封禁自动升级为<strong>永久封禁</strong></li>
+                                                <li><strong>内网防护</strong>：本机及私有网段（127.x、10.x、172.16-31.x、192.168.x）自动白名单保护</li>
                                             </ul>
                                         </div>
                                         <div class="blocked-ips-header">

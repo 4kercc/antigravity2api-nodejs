@@ -15,8 +15,8 @@ const DEFAULT_CONFIG = {
   blocking: {
     enabled: true,
     tempBlockDuration: 60 * 60 * 1000,
-    maxViolationsBeforeTempBlock: 50,
-    maxTempBlocksBeforePermanent: 10,
+    maxViolationsBeforeTempBlock: 10,
+    maxTempBlocksBeforePermanent: 3,
     violationWindow: 5 * 60 * 1000,
     violationDecayTime: 30 * 60 * 1000
   }

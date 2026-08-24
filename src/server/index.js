@@ -237,6 +237,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+// 恶意扫描指纹特征（Fail2ban 启发式规则：命中特征直接严重加权或封禁）
+const MALICIOUS_PROBE_REGEX = /(\.php|\.asp|\.aspx|\.jsp|\.cgi|\.env|\.git|\.svn|\.bak|\.zip|\.tar|\.rar|\.sql|\.config|phpunit|eval-stdin|wp-admin|wp-login|phpmyadmin|pma|webdav|\/containers\/json|\/actuator|\/v2\/_catalog|\/solr|\/telescope|\/cgi-bin)/i;
+
 // 404 处理 (未匹配到任何路由)
 app.use((req, res, next) => {
   // 白名单路径：这些路径的 404 不触发 IP 封禁
@@ -273,7 +276,16 @@ app.use((req, res, next) => {
   }
 
   const clientIP = getRealClientIP(req);
-  ipBlockManager.recordViolation(clientIP, '404', 1);
+  
+  // 智能 Fail2ban 扫描防御判定：
+  if (MALICIOUS_PROBE_REGEX.test(path)) {
+    // 命中高危扫描指纹 (如 phpunit, php, .env, /containers/json 等)，单次违规加权 5 分（两次即自动拉黑拦截）
+    ipBlockManager.recordViolation(clientIP, `scan_probe: ${path.substring(0, 30)}`, 5);
+  } else {
+    // 普通 404 路径
+    ipBlockManager.recordViolation(clientIP, '404', 1);
+  }
+
   res.status(404).json({ error: 'Not Found' });
 });
 
