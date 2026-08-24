@@ -156,24 +156,11 @@ class WarpManager {
 
     log.warn(`[WARP] ⚡ 检测到异常: ${reason}，正在执行多兼容重启换 IP ...`);
 
-    // 组合兼容命令：
-    // 1. 如果存在 warp 脚本，直接执行 warp restart
-    // 2. 否则通过 warp-cli disconnect && warp-cli connect 刷新 IP
-    // 3. 兜底重启 systemctl restart warp-svc
-    const restartCmd = `
-      if command -v warp &>/dev/null; then
-        warp restart
-      elif command -v warp-cli &>/dev/null; then
-        warp-cli --accept-tos disconnect 2>/dev/null || warp-cli disconnect 2>/dev/null || true
-        sleep 1
-        warp-cli --accept-tos connect 2>/dev/null || warp-cli connect 2>/dev/null || true
-      elif systemctl is-active --quiet warp-svc 2>/dev/null; then
-        systemctl restart warp-svc
-      fi
-    `.trim().replace(/\n\s+/g, ' ');
+    // 组合兼容命令（使用 /bin/sh 兼容的简洁语法，避免换行压缩时的语法错误）:
+    const restartCmd = 'warp restart 2>/dev/null || (warp-cli --accept-tos disconnect 2>/dev/null || warp-cli disconnect 2>/dev/null; sleep 1; warp-cli --accept-tos connect 2>/dev/null || warp-cli connect 2>/dev/null) || systemctl restart warp-svc 2>/dev/null || true';
 
     return new Promise((resolve) => {
-      exec(restartCmd, (error, stdout, stderr) => {
+      exec(restartCmd, { shell: '/bin/bash' }, (error, stdout, stderr) => {
         this.isRestarting = false;
         if (error) {
           log.error(`[WARP] 重启失败: ${error.message}`);
