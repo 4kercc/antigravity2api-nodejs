@@ -152,7 +152,7 @@ class IpBlockManager {
     return { blocked: false };
   }
 
-  async recordViolation(ip, type) {
+  async recordViolation(ip, type, severityWeight = 1) {
     if (!ip || this.isWhitelisted(ip)) return;
     if (!this.config.blocking.enabled) return;
     
@@ -182,7 +182,8 @@ class IpBlockManager {
       info.violations = 0;
     }
 
-    info.violations++;
+    // 根据不同违规严重度加权（例如后台密码暴力破解单次计 10 次违规，5次即封禁）
+    info.violations += (typeof severityWeight === 'number' && severityWeight > 0) ? severityWeight : 1;
     info.lastViolation = now;
 
     if (info.violations >= maxViolationsBeforeTempBlock) {
@@ -192,10 +193,10 @@ class IpBlockManager {
       if (info.tempBlockCount >= maxTempBlocksBeforePermanent) {
         info.permanent = true;
         info.expiresAt = 0;
-        logger.warn(`IP ${ip} 因频繁违规(${type})被永久封禁`);
+        logger.warn(`🚨 IP ${ip} 因频繁违规(${type})达到永久封禁阈值，已被永久拉黑！`);
       } else {
         info.expiresAt = now + tempBlockDuration;
-        logger.warn(`IP ${ip} 因频繁违规(${type})被临时封禁 ${Math.round(tempBlockDuration/60000)} 分钟 (累计封禁 ${info.tempBlockCount} 次)`);
+        logger.warn(`⚠️ IP ${ip} 因频繁违规(${type})已被临时封禁 ${Math.round(tempBlockDuration/60000)} 分钟 (累计封禁 ${info.tempBlockCount} 次)`);
       }
       
       await this.save();

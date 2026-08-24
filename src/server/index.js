@@ -35,15 +35,27 @@ const publicDir = getPublicDir();
 
 const app = express();
 
-// 信任反向代理，以便正确获取 HTTPS 协议状态 (req.secure) 和客户端 IP
-app.set('trust proxy', true);
+// 提取真实客户端 TCP 对端 IP（公网裸连时彻底忽略不可信的伪造请求头）
+export function getRealClientIP(req) {
+  let ip = req.socket?.remoteAddress || req.connection?.remoteAddress || req.ip || 'unknown';
+  if (typeof ip === 'string' && ip.startsWith('::ffff:')) {
+    ip = ip.substring(7);
+  }
+  return ip;
+}
+
+// 公网裸连模式：禁用 trust proxy，防止外部攻击者构造伪造的 X-Forwarded-For 伪装内网白名单绕过封禁
+app.set('trust proxy', false);
+// 隐藏 Express 标识，降低指纹暴露
+app.disable('x-powered-by');
 
 // 初始化 IP 封禁管理器
 ipBlockManager.init();
 
 // 全局 IP 封禁检查中间件
 app.use((req, res, next) => {
-  const ip = req.ip;
+  const ip = getRealClientIP(req);
+  req.realClientIP = ip;
   const status = ipBlockManager.check(ip);
   if (status.blocked) {
     if (status.reason === 'permanent') {
@@ -52,6 +64,15 @@ app.use((req, res, next) => {
     const remainingMinutes = Math.ceil((status.expiresAt - Date.now()) / 60000);
     return res.status(429).json({ error: `Access Denied: Temporarily blocked for ${remainingMinutes} minutes.` });
   }
+  next();
+});
+
+// ==================== 基础安全标头中间件 ====================
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
 
@@ -89,7 +110,7 @@ app.use((req, res, next) => {
   if (!ignorePaths.some(p => fullPath.startsWith(p))) {
     const start = Date.now();
     res.on('finish', () => {
-      const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress;
+      const clientIp = getRealClientIP(req);
       logger.request(req.method, fullPath, res.statusCode, Date.now() - start, clientIp, res.locals.tokenUsage);
     });
   }
@@ -112,10 +133,11 @@ app.use((req, res, next) => {
     return next();
   }
 
+  const clientIP = getRealClientIP(req);
   const { valid, keyInfo } = apiKeyManager.validateKey(providedKey);
   if (!valid) {
-    ipBlockManager.recordViolation(req.ip, 'auth_fail');
-    logger.warn(`API Key 验证失败: ${req.method} ${req.path} (IP: ${req.ip}, 提供的Key: ${providedKey ? providedKey.substring(0, 10) + '...' : '无'})`);
+    ipBlockManager.recordViolation(clientIP, 'auth_fail', 2);
+    logger.warn(`API Key 验证失败: ${req.method} ${req.path} (IP: ${clientIP}, 提供的Key: ${providedKey ? providedKey.substring(0, 10) + '...' : '无'})`);
     return res.status(401).json({ error: 'Invalid API Key' });
   }
 
@@ -147,15 +169,46 @@ app.use('/cli', cliRouter);
 
 // ==================== 系统端点 ====================
 
-// 公开使用量查询端点（输入 API Key 查询使用量与模型分布）
+// 内存中记录 /api/check-usage 请求频次防止爆破枚举
+const checkUsageRateLimits = new Map();
+
+// 公开使用量查询端点（输入 API Key 查询使用量与模型分布，增加 IP 级防爆破限频）
 app.post('/api/check-usage', (req, res) => {
+  const clientIP = getRealClientIP(req);
+  const now = Date.now();
+  const rateInfo = checkUsageRateLimits.get(clientIP) || { count: 0, resetAt: now + 60000 };
+
+  if (now > rateInfo.resetAt) {
+    rateInfo.count = 1;
+    rateInfo.resetAt = now + 60000;
+  } else {
+    rateInfo.count++;
+  }
+  checkUsageRateLimits.set(clientIP, rateInfo);
+
+  // 定期清理过期的内存限频记录
+  if (checkUsageRateLimits.size > 2000) {
+    for (const [k, v] of checkUsageRateLimits.entries()) {
+      if (now > v.resetAt) checkUsageRateLimits.delete(k);
+    }
+  }
+
+  // 1分钟内单IP最多查询 20 次，超出则限流并累加违规记录
+  if (rateInfo.count > 20) {
+    ipBlockManager.recordViolation(clientIP, 'check_usage_rate_limit', 5);
+    logger.warn(`⚠️ IP [${clientIP}] 频繁查询 /api/check-usage，触发限频保护`);
+    return res.status(429).json({ success: false, message: '查询请求过于频繁，请 1 分钟后再试' });
+  }
+
   const { key } = req.body || {};
   if (!key || typeof key !== 'string' || !key.trim()) {
     return res.status(400).json({ success: false, message: '请输入要查询的 API 密钥 (Key)' });
   }
 
-  const report = apiKeyManager.queryUsageReport(key);
+  const report = apiKeyManager.queryUsageReport(key.trim());
   if (!report) {
+    // 每次查询无效 key 计一次违规，防止黑客枚举有效 key
+    ipBlockManager.recordViolation(clientIP, 'check_usage_invalid_key', 2);
     return res.status(404).json({ success: false, message: '未找到该 API 密钥，请检查输入是否正确' });
   }
 
@@ -219,7 +272,8 @@ app.use((req, res, next) => {
     return res.status(404).json({ error: 'Not Found' });
   }
 
-  ipBlockManager.recordViolation(req.ip, '404');
+  const clientIP = getRealClientIP(req);
+  ipBlockManager.recordViolation(clientIP, '404', 1);
   res.status(404).json({ error: 'Not Found' });
 });
 

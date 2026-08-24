@@ -77,13 +77,13 @@ const cookieAuthMiddleware = (req, res, next) => {
   }
 };
 
-// 获取客户端 IP
+// 获取真实客户端 IP（公网裸连时提取底层 TCP 对端，杜绝构造 X-Forwarded-For 伪造内网白名单）
 function getClientIP(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-    req.headers['x-real-ip'] ||
-    req.connection?.remoteAddress ||
-    req.ip ||
-    'unknown';
+  let ip = req.socket?.remoteAddress || req.connection?.remoteAddress || req.ip || 'unknown';
+  if (typeof ip === 'string' && ip.startsWith('::ffff:')) {
+    ip = ip.substring(7);
+  }
+  return ip;
 }
 
 // 登录接口
@@ -138,8 +138,8 @@ router.post('/login', async (req, res) => {
     logger.info(`🔐 管理员登录成功 [IP: ${clientIP}] (用户: ${username})`);
     res.json({ success: true, token });
   } else {
-    // 使用统一的 IP 封禁管理器记录违规
-    await ipBlockManager.recordViolation(clientIP, 'admin_login_fail');
+    // 密码错误单次加重违规权重为 10（5次即触发临时封禁，累计多次直接永久封禁）
+    await ipBlockManager.recordViolation(clientIP, 'admin_login_fail', 10);
     logger.warn(`❌ 管理员登录失败 [IP: ${clientIP}] (尝试用户: ${username})`);
     res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
@@ -174,7 +174,7 @@ router.post('/login/verify-2fa', async (req, res) => {
     }
 
     if (!valid) {
-      await ipBlockManager.recordViolation(clientIP, 'admin_2fa_fail');
+      await ipBlockManager.recordViolation(clientIP, 'admin_2fa_fail', 10);
       logger.warn(`❌ 2FA 二次验证失败 [IP: ${clientIP}]`);
       return res.status(401).json({ success: false, message: '验证码或备用恢复码无效' });
     }
