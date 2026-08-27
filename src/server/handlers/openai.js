@@ -64,65 +64,93 @@ export const handleOpenAIRequest = async (req, res) => {
       return true;
     };
 
+    const routingMode = config.channels?.routingMode || 'fallback';
+    const externalChannel = await channelManager.getChannel(model);
+
+    // 辅助函数：通过外部渠道执行请求
+    const executeViaExternalChannel = async (chan) => {
+      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理请求 (${model}) [模式: ${routingMode}]`);
+      res.locals.channelName = chan.name;
+      const { id, created } = createResponseMeta();
+
+      if (stream) {
+        setStreamHeaders(res);
+        const heartbeatTimer = createHeartbeat(res);
+        try {
+          let usageData = null;
+          await forwardToExternalOpenAIChannel(chan, body, true, (data) => {
+            if (data.type === 'usage') {
+              usageData = data.usage;
+            } else if (data.type === 'reasoning') {
+              writeStreamData(res, createStreamChunk(id, created, model, { reasoning_content: data.reasoning_content }));
+            } else if (data.type === 'tool_calls') {
+              writeStreamData(res, createStreamChunk(id, created, model, { tool_calls: data.tool_calls }));
+            } else if (data.type === 'content') {
+              writeStreamData(res, createStreamChunk(id, created, model, { content: data.content }));
+            }
+          });
+          writeStreamData(res, { ...createStreamChunk(id, created, model, {}, 'stop'), usage: usageData });
+          if (usageData) {
+            res.locals.tokenUsage = usageData;
+            channelManager.recordUsage(chan.id, usageData).catch(() => {});
+          } else {
+            channelManager.recordUsage(chan.id, null).catch(() => {});
+          }
+          return endStream(res, heartbeatTimer);
+        } catch (err) {
+          clearInterval(heartbeatTimer);
+          logger.error(`外部渠道 [${chan.name}] 处理请求失败:`, err.message);
+          return res.status(502).json({ error: `External channel error: ${err.message}` });
+        }
+      } else {
+        // 非流式
+        try {
+          const resp = await forwardToExternalOpenAIChannel(chan, body, false);
+          if (resp.usage) {
+            res.locals.tokenUsage = resp.usage;
+            channelManager.recordUsage(chan.id, resp.usage).catch(() => {});
+          } else {
+            channelManager.recordUsage(chan.id, null).catch(() => {});
+          }
+          return res.json(createOpenAIChatCompletionResponse({
+            id,
+            created,
+            model,
+            content: resp.content,
+            reasoningContent: resp.reasoning,
+            toolCalls: resp.toolCalls,
+            usage: resp.usage,
+            passSignatureToClient: false,
+            stripToolCallSignature: true
+          }));
+        } catch (err) {
+          logger.error(`外部渠道 [${chan.name}] 处理非流式请求失败:`, err.message);
+          return res.status(502).json({ error: `External channel error: ${err.message}` });
+        }
+      }
+    };
+
+    // 1. 强制仅走外部渠道
+    if (routingMode === 'external_only') {
+      if (!externalChannel) {
+        return res.status(503).json({ error: '当前配置为【仅使用外部渠道】，但未找到支持此模型的可用外部渠道' });
+      }
+      return await executeViaExternalChannel(externalChannel);
+    }
+
+    // 2. 外部渠道优先
+    if (routingMode === 'external_first' && externalChannel) {
+      return await executeViaExternalChannel(externalChannel);
+    }
+
+    // 3. 原生优先（fallback / 智能降级）
     const nativeToken = await tokenManager.getToken(model);
     const hasNativeToken = nativeToken && await applyTokenState(nativeToken);
 
-    // 检查是否有可用的外部上游渠道（如 AIStudioToAPI / OneAPI）
-    const externalChannel = await channelManager.getChannel(model);
-
-    // 如果没有原生 Token，但配置了外部渠道，则无缝通过外部渠道提供服务
     if (!hasNativeToken) {
       if (externalChannel) {
-        logger.info(`🔄 原生 Token 未就绪，切换至外部上游渠道提供服务: [${externalChannel.name}] (${model})`);
-        const { id, created } = createResponseMeta();
-
-        if (stream) {
-          setStreamHeaders(res);
-          const heartbeatTimer = createHeartbeat(res);
-          try {
-            let usageData = null;
-            await forwardToExternalOpenAIChannel(externalChannel, body, true, (data) => {
-              if (data.type === 'usage') {
-                usageData = data.usage;
-              } else if (data.type === 'reasoning') {
-                writeStreamData(res, createStreamChunk(id, created, model, { reasoning_content: data.reasoning_content }));
-              } else if (data.type === 'tool_calls') {
-                writeStreamData(res, createStreamChunk(id, created, model, { tool_calls: data.tool_calls }));
-              } else if (data.type === 'content') {
-                writeStreamData(res, createStreamChunk(id, created, model, { content: data.content }));
-              }
-            });
-            writeStreamData(res, { ...createStreamChunk(id, created, model, {}, 'stop'), usage: usageData });
-            if (usageData) res.locals.tokenUsage = usageData;
-            return endStream(res, heartbeatTimer);
-          } catch (err) {
-            clearInterval(heartbeatTimer);
-            logger.error(`外部渠道 [${externalChannel.name}] 处理请求失败:`, err.message);
-            return res.status(502).json({ error: `External channel error: ${err.message}` });
-          }
-        } else {
-          // 非流式
-          try {
-            const resp = await forwardToExternalOpenAIChannel(externalChannel, body, false);
-            if (resp.usage) res.locals.tokenUsage = resp.usage;
-            return res.json(createOpenAIChatCompletionResponse({
-              id,
-              created,
-              model,
-              content: resp.content,
-              reasoningContent: resp.reasoning,
-              toolCalls: resp.toolCalls,
-              usage: resp.usage,
-              passSignatureToClient: false,
-              stripToolCallSignature: true
-            }));
-          } catch (err) {
-            logger.error(`外部渠道 [${externalChannel.name}] 处理非流式请求失败:`, err.message);
-            return res.status(502).json({ error: `External channel error: ${err.message}` });
-          }
-        }
+        return await executeViaExternalChannel(externalChannel);
       }
-
       throw new Error('没有可用的token，请运行 npm run login 获取token 或在设置中添加外部上游渠道');
     }
 

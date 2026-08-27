@@ -4,6 +4,8 @@
  */
 
 import { generateAssistantResponse, generateAssistantResponseNoStream, getModelsWithQuotas } from '../../api/client.js';
+import { forwardToExternalOpenAIChannel } from '../../api/externalChannelClient.js';
+import channelManager from '../../utils/channelManager.js';
 import { generateClaudeRequestBody, prepareImageRequest } from '../../utils/utils.js';
 import { normalizeClaudeParameters } from '../../utils/parameterNormalizer.js';
 import { buildClaudeErrorPayload } from '../../utils/errors.js';
@@ -83,8 +85,164 @@ export const handleClaudeRequest = async (req, res, isStream) => {
       return true;
     };
 
-    if (!await applyTokenState(await tokenManager.getToken(model))) {
-      throw new Error('没有可用的token，请运行 npm run login 获取token');
+    const routingMode = config.channels?.routingMode || 'fallback';
+    const externalChannel = await channelManager.getChannel(model);
+
+    // 辅助函数：通过外部渠道执行 Claude 请求（透传或 OpenAI 协议桥接）
+    const executeViaExternalChannel = async (chan) => {
+      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理 Claude 格式请求 (${model}) [模式: ${routingMode}]`);
+      res.locals.channelName = chan.name;
+      const msgId = `msg_${Date.now()}`;
+
+      // 构造通用 chat completions 格式
+      const openAiMessages = [];
+      if (system) {
+        openAiMessages.push({ role: 'system', content: typeof system === 'string' ? system : JSON.stringify(system) });
+      }
+      if (Array.isArray(messages)) {
+        for (const m of messages) {
+          openAiMessages.push({
+            role: m.role,
+            content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+          });
+        }
+      }
+
+      const openAiPayload = {
+        model,
+        messages: openAiMessages,
+        max_tokens: parameters.max_tokens,
+        temperature: parameters.temperature
+      };
+
+      if (isStream) {
+        setStreamHeaders(res);
+        const heartbeatTimer = createHeartbeat(res);
+        try {
+          res.write(createClaudeStreamEvent('message_start', {
+            type: "message_start",
+            message: {
+              id: msgId,
+              type: "message",
+              role: "assistant",
+              content: [],
+              model: model,
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 0, output_tokens: 0 }
+            }
+          }));
+
+          let contentIndex = 0;
+          let usageData = null;
+
+          await forwardToExternalOpenAIChannel(chan, openAiPayload, true, (data) => {
+            if (data.type === 'usage') {
+              usageData = data.usage;
+            } else if (data.type === 'reasoning') {
+              res.write(createClaudeStreamEvent('content_block_delta', {
+                type: "content_block_delta",
+                index: contentIndex,
+                delta: { type: "thinking_delta", thinking: data.reasoning_content }
+              }));
+            } else if (data.type === 'content') {
+              if (contentIndex === 0) {
+                res.write(createClaudeStreamEvent('content_block_start', {
+                  type: "content_block_start",
+                  index: 0,
+                  content_block: { type: "text", text: "" }
+                }));
+                contentIndex = 1;
+              }
+              res.write(createClaudeStreamEvent('content_block_delta', {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "text_delta", text: data.content }
+              }));
+            }
+          });
+
+          if (contentIndex > 0) {
+            res.write(createClaudeStreamEvent('content_block_stop', {
+              type: "content_block_stop",
+              index: 0
+            }));
+          }
+
+          const finalUsage = {
+            input_tokens: usageData?.prompt_tokens || 0,
+            output_tokens: usageData?.completion_tokens || 0
+          };
+
+          res.write(createClaudeStreamEvent('message_delta', {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: finalUsage.output_tokens }
+          }));
+          res.write(createClaudeStreamEvent('message_stop', { type: "message_stop" }));
+
+          if (usageData) {
+            res.locals.tokenUsage = usageData;
+            channelManager.recordUsage(chan.id, usageData).catch(() => {});
+          } else {
+            channelManager.recordUsage(chan.id, null).catch(() => {});
+          }
+          clearInterval(heartbeatTimer);
+          return res.end();
+        } catch (err) {
+          clearInterval(heartbeatTimer);
+          logger.error(`外部渠道 [${chan.name}] 处理 Claude 请求失败:`, err.message);
+          return res.status(502).json({ error: `External channel error: ${err.message}` });
+        }
+      } else {
+        // 非流式
+        try {
+          const resp = await forwardToExternalOpenAIChannel(chan, openAiPayload, false);
+          if (resp.usage) {
+            res.locals.tokenUsage = resp.usage;
+            channelManager.recordUsage(chan.id, resp.usage).catch(() => {});
+          } else {
+            channelManager.recordUsage(chan.id, null).catch(() => {});
+          }
+          return res.json(createClaudeResponse(
+            msgId,
+            model,
+            resp.content,
+            resp.reasoning,
+            null,
+            resp.toolCalls,
+            "end_turn",
+            resp.usage
+          ));
+        } catch (err) {
+          logger.error(`外部渠道 [${chan.name}] 处理 Claude 非流式请求失败:`, err.message);
+          return res.status(502).json({ error: `External channel error: ${err.message}` });
+        }
+      }
+    };
+
+    // 1. 强制仅走外部渠道
+    if (routingMode === 'external_only') {
+      if (!externalChannel) {
+        return res.status(503).json({ error: '当前配置为【仅使用外部渠道】，但未找到支持此模型的可用外部渠道' });
+      }
+      return await executeViaExternalChannel(externalChannel);
+    }
+
+    // 2. 外部渠道优先
+    if (routingMode === 'external_first' && externalChannel) {
+      return await executeViaExternalChannel(externalChannel);
+    }
+
+    // 3. 原生优先（fallback）
+    const nativeToken = await tokenManager.getToken(model);
+    const hasNativeToken = nativeToken && await applyTokenState(nativeToken);
+
+    if (!hasNativeToken) {
+      if (externalChannel) {
+        return await executeViaExternalChannel(externalChannel);
+      }
+      throw new Error('没有可用的token，请运行 npm run login 获取token 或在设置中添加外部上游渠道');
     }
 
     const refreshQuota = async () => {

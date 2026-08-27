@@ -1780,11 +1780,12 @@ router.delete('/channels/:id', cookieAuthMiddleware, async (req, res) => {
 router.post('/channels/:id/test', cookieAuthMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
+    const { model } = req.body || {};
     const chan = await channelManager.getChannelById(id);
     if (!chan) {
       return res.status(404).json({ success: false, message: '渠道不存在' });
     }
-    const result = await testExternalChannel(chan);
+    const result = await testExternalChannel(chan, model);
     res.json({ success: true, message: `连通性测试通过！延迟: ${result.latencyMs}ms`, data: result });
   } catch (error) {
     logger.error(`测试渠道失败:`, error.message);

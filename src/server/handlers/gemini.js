@@ -4,6 +4,8 @@
  */
 
 import { generateAssistantResponse, generateAssistantResponseNoStream, getAvailableModels, getModelsWithQuotas } from '../../api/client.js';
+import { forwardToExternalOpenAIChannel } from '../../api/externalChannelClient.js';
+import channelManager from '../../utils/channelManager.js';
 import { generateGeminiRequestBody, prepareImageRequest } from '../../utils/utils.js';
 import { buildGeminiErrorPayload } from '../../utils/errors.js';
 import logger from '../../utils/logger.js';
@@ -127,8 +129,97 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
       return true;
     };
 
-    if (!await applyTokenState(await tokenManager.getToken(modelName))) {
-      throw new Error('没有可用的token，请运行 npm run login 获取token');
+    const routingMode = config.channels?.routingMode || 'fallback';
+    const externalChannel = await channelManager.getChannel(modelName);
+
+    // 辅助函数：通过外部渠道执行 Gemini 格式请求
+    const executeViaExternalChannel = async (chan) => {
+      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理 Gemini 格式请求 (${modelName}) [模式: ${routingMode}]`);
+      res.locals.channelName = chan.name;
+
+      // 提取 Gemini contents 转换为标准 OpenAI messages
+      const openAiMessages = [];
+      if (Array.isArray(body.contents)) {
+        for (const c of body.contents) {
+          const role = c.role === 'model' ? 'assistant' : 'user';
+          let text = '';
+          if (Array.isArray(c.parts)) {
+            text = c.parts.map(p => p.text || '').join('');
+          }
+          openAiMessages.push({ role, content: text });
+        }
+      }
+
+      const openAiPayload = {
+        model: modelName,
+        messages: openAiMessages
+      };
+
+      if (isStream) {
+        setStreamHeaders(res);
+        const heartbeatTimer = createHeartbeat(res);
+        try {
+          let usageData = null;
+          await forwardToExternalOpenAIChannel(chan, openAiPayload, true, (data) => {
+            if (data.type === 'usage') {
+              usageData = data.usage;
+            } else if (data.type === 'content') {
+              writeStreamData(res, createGeminiResponse(data.content, null, null, null, usageData));
+            }
+          });
+
+          if (usageData) {
+            res.locals.tokenUsage = usageData;
+            channelManager.recordUsage(chan.id, usageData).catch(() => {});
+          } else {
+            channelManager.recordUsage(chan.id, null).catch(() => {});
+          }
+          return endStream(res, heartbeatTimer);
+        } catch (err) {
+          clearInterval(heartbeatTimer);
+          logger.error(`外部渠道 [${chan.name}] 处理 Gemini 流式请求失败:`, err.message);
+          return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+        }
+      } else {
+        // 非流式
+        try {
+          const resp = await forwardToExternalOpenAIChannel(chan, openAiPayload, false);
+          if (resp.usage) {
+            res.locals.tokenUsage = resp.usage;
+            channelManager.recordUsage(chan.id, resp.usage).catch(() => {});
+          } else {
+            channelManager.recordUsage(chan.id, null).catch(() => {});
+          }
+          return res.json(createGeminiResponse(resp.content, resp.reasoning, null, resp.toolCalls, resp.usage));
+        } catch (err) {
+          logger.error(`外部渠道 [${chan.name}] 处理 Gemini 非流式请求失败:`, err.message);
+          return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+        }
+      }
+    };
+
+    // 1. 强制仅走外部渠道
+    if (routingMode === 'external_only') {
+      if (!externalChannel) {
+        return res.status(503).json({ error: { code: 503, message: '当前配置为【仅使用外部渠道】，但未找到支持此模型的可用外部渠道' } });
+      }
+      return await executeViaExternalChannel(externalChannel);
+    }
+
+    // 2. 外部渠道优先
+    if (routingMode === 'external_first' && externalChannel) {
+      return await executeViaExternalChannel(externalChannel);
+    }
+
+    // 3. 原生优先（fallback）
+    const nativeToken = await tokenManager.getToken(modelName);
+    const hasNativeToken = nativeToken && await applyTokenState(nativeToken);
+
+    if (!hasNativeToken) {
+      if (externalChannel) {
+        return await executeViaExternalChannel(externalChannel);
+      }
+      throw new Error('没有可用的token，请运行 npm run login 获取token 或在设置中添加外部上游渠道');
     }
 
     const refreshQuota = async () => {

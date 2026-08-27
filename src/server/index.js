@@ -111,7 +111,7 @@ app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
       const clientIp = getRealClientIP(req);
-      logger.request(req.method, fullPath, res.statusCode, Date.now() - start, clientIp, res.locals.tokenUsage);
+      logger.request(req.method, fullPath, res.statusCode, Date.now() - start, clientIp, res.locals.tokenUsage, res.locals.channelName);
     });
   }
   next();

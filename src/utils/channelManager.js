@@ -97,6 +97,8 @@ class ChannelManager {
       enable: channelData.enable ?? true,
       priority: Number(channelData.priority) || 10, // 默认优先级 10 (数值越小优先级越高)
       weight: Number(channelData.weight) || 1,
+      totalRequests: 0,
+      totalTokens: 0,
       createdAt: Date.now()
     };
 
@@ -148,6 +150,26 @@ class ChannelManager {
     await this.save();
     logger.info(`✓ 已删除外部上游渠道: ${deleted.name}`);
     return true;
+  }
+
+  /**
+   * 记录渠道调用统计
+   */
+  async recordUsage(id, usage = null) {
+    if (!id) return;
+    if (!this.initialized) await this.init();
+    const chan = this.channels.find(c => c.id === id);
+    if (!chan) return;
+
+    chan.totalRequests = (chan.totalRequests || 0) + 1;
+    if (usage) {
+      const input = usage.prompt_tokens || usage.input_tokens || usage.promptTokenCount || 0;
+      const output = usage.completion_tokens || usage.output_tokens || usage.candidatesTokenCount || 0;
+      const total = usage.total_tokens || usage.totalTokenCount || (input + output);
+      chan.totalTokens = (chan.totalTokens || 0) + total;
+    }
+    chan.lastUsed = Date.now();
+    await this.save();
   }
 
   /**

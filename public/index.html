@@ -622,6 +622,20 @@
                                             用于消化因 Google 风控提示“无法验证您的身份”而无法登录客户端的账号。可将 <strong>AIStudioToAPI</strong>（如 <code>http://127.0.0.1:8088/v1</code>）或 OneAPI 等作为上游渠道无缝接入混合轮询或故障降级。
                                         </p>
 
+                                        <!-- 分流路由策略控制 -->
+                                        <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;">
+                                            <div class="form-row-inline" style="align-items: center; justify-content: space-between; margin-bottom: 0;">
+                                                <div class="form-group compact" style="margin-bottom: 0; flex: 1;">
+                                                    <label style="margin-bottom: 4px;"><strong>🚦 上游分流路由策略</strong> <span class="help-tip" data-tooltip="智能降级：优先原生Token，故障或无账号时自动降级到外部渠道&#10;优先外部渠道：优先使用外部渠道，无匹配外部渠道时使用原生Token&#10;仅使用外部渠道：强制所有请求均由外部渠道处理">?</span></label>
+                                                    <select name="CHANNEL_ROUTING_MODE" id="channelRoutingModeSelect" style="max-width: 320px;">
+                                                        <option value="fallback">原生优先（智能降级 / 故障转移）</option>
+                                                        <option value="external_first">外部渠道优先（优先走 AIStudio）</option>
+                                                        <option value="external_only">强制仅走外部渠道（忽略原生Token）</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div id="channelsListContainer" style="display: flex; flex-direction: column; gap: 12px;">
                                             <div class="empty-state-small">正在加载外部渠道列表...</div>
                                         </div>

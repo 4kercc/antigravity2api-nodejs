@@ -447,6 +447,11 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
     // 总是使用积分：每次请求都使用 Google One AI 积分（默认关闭）
     alwaysUseCredits: jsonConfig.other?.alwaysUseCredits === true,
 
+    // ==================== 外部上游渠道分流配置 ====================
+    channels: {
+      routingMode: jsonConfig.channels?.routingMode || 'fallback' // 'fallback' (原生优先) | 'external_first' (外部优先) | 'external_only' (强制仅外部)
+    },
+
     // ==================== Gemini CLI 配置 ====================
     geminicli: {
       // 是否启用 Gemini CLI 反代功能

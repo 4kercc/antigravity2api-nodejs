@@ -40,6 +40,8 @@ function renderChannels(channels) {
   container.innerHTML = channels.map((c, index) => {
     const isEnabled = c.enable !== false;
     const modelsText = (c.models && c.models.length > 0) ? c.models.join(', ') : '全部支持 (*)';
+    const totalReq = c.totalRequests || 0;
+    const totalTok = c.totalTokens || 0;
     
     return `
       <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
@@ -64,8 +66,9 @@ function renderChannels(channels) {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: 0.85rem; color: var(--text-muted, #64748b);">
           <div><strong>Base URL:</strong> <code style="color: var(--primary);">${escapeHtml(c.baseUrl)}</code></div>
           <div><strong>API Key:</strong> <code>${c.apiKeyMasked || '（无密钥/免密）'}</code></div>
+          <div><strong>累计调用 / Token:</strong> <span style="font-weight: bold; color: var(--primary);">${totalReq} 次</span> / <span>${totalTok.toLocaleString()} Tokens</span></div>
           <div><strong>优先级:</strong> ${c.priority || 10} (值越小越优先)</div>
-          <div><strong>支持模型:</strong> <span style="color: #059669;">${escapeHtml(modelsText)}</span></div>
+          <div style="grid-column: 1 / -1;"><strong>支持模型:</strong> <span style="color: #059669;">${escapeHtml(modelsText)}</span></div>
         </div>
       </div>
     `;
@@ -208,10 +211,21 @@ async function deleteChannel(id, name) {
 }
 
 async function testChannelConnectivity(id) {
-  showLoading('正在测试外部渠道连通性与模型响应...');
+  const chan = cachedChannels.find(c => c.id === id);
+  let selectModel = 'gemini-2.5-flash';
+  if (chan && chan.models && chan.models.length > 0 && chan.models[0] !== '*') {
+    selectModel = chan.models[0];
+  }
+
+  const inputModel = prompt(`请输入要用于测速的模型名称:`, selectModel);
+  if (inputModel === null) return; // 用户取消
+
+  showLoading(`正在使用 [${inputModel.trim() || selectModel}] 测试外部渠道连通性...`);
   try {
     const res = await authFetch(`/admin/channels/${encodeURIComponent(id)}/test`, {
-      method: 'POST'
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: inputModel.trim() || selectModel })
     });
     const data = await res.json();
     hideLoading();

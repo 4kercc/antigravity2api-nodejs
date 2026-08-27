@@ -128,12 +128,12 @@ export async function forwardToExternalOpenAIChannel(channel, payload, stream = 
 /**
  * 在线测试外部渠道的连通性与延迟
  */
-export async function testExternalChannel(channel) {
+export async function testExternalChannel(channel, customModel = null) {
   const client = getAxiosClient();
   const startTime = Date.now();
-  const testModel = (channel.models && channel.models.length > 0 && channel.models[0] !== '*') 
+  const testModel = customModel || (channel.models && channel.models.length > 0 && channel.models[0] !== '*' 
     ? channel.models[0] 
-    : 'gemini-2.5-flash';
+    : 'gemini-2.5-flash');
 
   const url = `${channel.baseUrl}/chat/completions`;
   const headers = { 'Content-Type': 'application/json' };

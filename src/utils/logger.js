@@ -42,9 +42,10 @@ function logMessage(level, ...args) {
   logWsServer.storeLog(level, message);
 }
 
-function logRequest(method, path, status, duration, ip = '', tokenUsage = null) {
+function logRequest(method, path, status, duration, ip = '', tokenUsage = null, channelName = null) {
   const statusColor = status >= 500 ? colors.red : status >= 400 ? colors.yellow : colors.green;
   let ipStr = ip ? `[${ip}] ` : '';
+  let chanStr = channelName ? ` [渠道: ${channelName}]` : '';
   let usageStr = '';
   if (tokenUsage) {
     const input = tokenUsage.prompt_tokens || tokenUsage.input_tokens || tokenUsage.promptTokenCount || 0;
@@ -53,10 +54,10 @@ function logRequest(method, path, status, duration, ip = '', tokenUsage = null) 
     usageStr = ` | Tokens: In ${input} / Out ${output} / Total ${total}`;
   }
 
-  const message = `${ipStr}[${method}] - ${path} ${status} ${duration}ms${usageStr}`;
+  const message = `${ipStr}[${method}] - ${path}${chanStr} ${status} ${duration}ms${usageStr}`;
 
   // 输出到控制台
-  console.log(`${colors.gray}${timestampStr()}${colors.reset} ${colors.cyan}[${method}]${colors.reset} ${ipStr}- ${path} ${statusColor}${status}${colors.reset} ${colors.gray}${duration}ms${colors.reset}${usageStr}`);
+  console.log(`${colors.gray}${timestampStr()}${colors.reset} ${colors.cyan}[${method}]${colors.reset} ${ipStr}- ${path}${chanStr ? colors.yellow + chanStr + colors.reset : ''} ${statusColor}${status}${colors.reset} ${colors.gray}${duration}ms${colors.reset}${usageStr}`);
 
   // 存储日志（根据状态码决定级别）
   const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'request';

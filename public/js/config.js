@@ -213,6 +213,12 @@ async function loadConfig() {
                 setActiveSettingSection(activeSettingSectionId, false);
             }
             
+	            if (json.channels) {
+	                if (form.elements['CHANNEL_ROUTING_MODE']) {
+	                    form.elements['CHANNEL_ROUTING_MODE'].value = json.channels.routingMode || 'fallback';
+	                }
+	            }
+
 	            // 加载外部渠道列表
 	            if (typeof loadChannels === 'function') {
 	                loadChannels();
@@ -320,8 +326,14 @@ async function saveConfig(e) {
         defaults: {},
         other: {},
         rotation: {},
-        geminicli: {}
+        geminicli: {},
+        channels: {}
     };
+
+    // 处理分流路由策略
+    if (form.elements['CHANNEL_ROUTING_MODE']) {
+        jsonConfig.channels.routingMode = form.elements['CHANNEL_ROUTING_MODE'].value || 'fallback';
+    }
 
     // 处理checkbox：未选中的checkbox不会出现在FormData中
     jsonConfig.geminicli.enabled = form.elements['GEMINICLI_ENABLED']?.checked !== false;
