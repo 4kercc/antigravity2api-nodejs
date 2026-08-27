@@ -318,6 +318,20 @@
                         </div>
                     </div>
 
+                    <!-- 批量操作栏 -->
+                    <div id="batchActionBar" class="batch-actions-bar hidden">
+                        <div class="batch-select-info">
+                            <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-bottom: 0;">
+                                <input type="checkbox" id="selectAllTokensCheckbox" onchange="toggleSelectAllTokens(this.checked)" class="token-checkbox">
+                                <span>全选当前 (<span id="selectedTokensCount" style="color: var(--primary); font-weight: bold;">0</span>/<span id="visibleTokensCount">0</span>)</span>
+                            </label>
+                        </div>
+                        <div class="batch-actions-btns">
+                            <button type="button" onclick="clearSelectedTokens()" class="btn btn-secondary btn-sm">取消选择</button>
+                            <button type="button" onclick="batchDeleteTokens()" class="btn btn-danger btn-sm">🗑️ 批量删除选中</button>
+                        </div>
+                    </div>
+
                     <!-- Token网格 -->
                     <div id="tokenList" class="token-grid">
                         <div class="empty-state">

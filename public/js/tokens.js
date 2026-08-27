@@ -1,6 +1,7 @@
 // Token管理：增删改查、启用禁用
 
 let cachedTokens = [];
+let selectedTokenIds = new Set(); // 多选选中的 Token ID 集合
 let currentFilter = localStorage.getItem('tokenFilter') || 'all'; // 'all', 'enabled', 'disabled'
 let skipAnimation = false; // 是否跳过动画
 
@@ -981,6 +982,10 @@ function renderTokens(tokens) {
         filteredTokens = tokens.filter(t => !t.enable);
     }
 
+    // 渲染前清除不再存在的 selectedTokenIds
+    const validIds = new Set(tokens.map(t => t.id));
+    selectedTokenIds = new Set([...selectedTokenIds].filter(id => validIds.has(id)));
+
     const tokenList = document.getElementById('tokenList');
     if (filteredTokens.length === 0) {
         const emptyText = currentFilter === 'all' ? '暂无Token' :
@@ -993,6 +998,7 @@ function renderTokens(tokens) {
                 <div class="empty-state-hint">${emptyHint}</div>
             </div>
         `;
+        updateBatchActionBar();
         return;
     }
 
@@ -1001,6 +1007,7 @@ function renderTokens(tokens) {
         const tokenId = token.id;
         const isRefreshing = refreshingTokens.has(tokenId);
         const cardId = tokenId.substring(0, 8);
+        const isSelected = selectedTokenIds.has(tokenId);
 
         // 计算在原始列表中的序号（基于添加顺序）
         const originalIndex = cachedTokens.findIndex(t => t.id === token.id);
@@ -1014,14 +1021,17 @@ function renderTokens(tokens) {
         const safeEmailJs = escapeJs(token.email || '');
 
         return `
-        <div class="token-card ${!token.enable ? 'disabled' : ''} ${isRefreshing ? 'refreshing' : ''} ${skipAnimation ? 'no-animation' : ''}" id="card-${escapeHtml(cardId)}">
+        <div class="token-card ${!token.enable ? 'disabled' : ''} ${isRefreshing ? 'refreshing' : ''} ${isSelected ? 'selected' : ''} ${skipAnimation ? 'no-animation' : ''}" id="card-${escapeHtml(cardId)}">
             <div class="token-header">
                 <div class="token-header-left">
-	                    <span class="status ${token.enable ? 'enabled' : 'disabled'}">
-	                        ${token.enable ? '✅ 启用' : '❌ 禁用'}
-	                    </span>
-	                    ${token.sub ? `<span class="status-subscription subscription-badge ${token.sub === 'free-tier' ? 'free-tier' : 'paid-tier'}" title="${escapeHtml(token.sub)}">${escapeHtml(formatSubTier(token.sub))}</span>` : ''}
-	                    <button class="btn-icon token-refresh-btn ${isRefreshing ? 'loading' : ''}" id="refresh-btn-${escapeHtml(cardId)}" onclick="manualRefreshToken('${safeTokenId}')" title="刷新Token" ${isRefreshing ? 'disabled' : ''}>🔄</button>
+                    <label class="token-checkbox-wrapper" title="选择此 Token">
+                        <input type="checkbox" class="token-checkbox item-token-checkbox" data-token-id="${escapeHtml(tokenId)}" ${isSelected ? 'checked' : ''} onchange="toggleSelectToken('${safeTokenId}', this.checked)">
+                    </label>
+                    <span class="status ${token.enable ? 'enabled' : 'disabled'}">
+                        ${token.enable ? '✅ 启用' : '❌ 禁用'}
+                    </span>
+                    ${token.sub ? `<span class="status-subscription subscription-badge ${token.sub === 'free-tier' ? 'free-tier' : 'paid-tier'}" title="${escapeHtml(token.sub)}">${escapeHtml(formatSubTier(token.sub))}</span>` : ''}
+                    <button class="btn-icon token-refresh-btn ${isRefreshing ? 'loading' : ''}" id="refresh-btn-${escapeHtml(cardId)}" onclick="manualRefreshToken('${safeTokenId}')" title="刷新Token" ${isRefreshing ? 'disabled' : ''}>🔄</button>
                 </div>
                 <div class="token-header-right">
                     <button class="btn-icon" onclick="showTokenDetail('${safeTokenId}')" title="编辑">✏️</button>
@@ -1045,12 +1055,12 @@ function renderTokens(tokens) {
                 <span class="token-id-label">🔑</span>
                 <span class="token-id-value">${escapeHtml(tokenId.length > 24 ? tokenId.substring(0, 12) + '...' + tokenId.substring(tokenId.length - 8) : tokenId)}</span>
             </div>
-	            <div class="token-quota-inline" id="quota-inline-${escapeHtml(cardId)}">
-	                <div class="quota-inline-header" onclick="toggleQuotaExpand('${escapeJs(cardId)}', '${safeTokenId}')">
-	                    <span class="quota-inline-summary" id="quota-summary-${escapeHtml(cardId)}">📊 加载中...</span>
-	                </div>
-	                <div class="quota-inline-detail hidden" id="quota-detail-${escapeHtml(cardId)}"></div>
-	            </div>
+            <div class="token-quota-inline" id="quota-inline-${escapeHtml(cardId)}">
+                <div class="quota-inline-header" onclick="toggleQuotaExpand('${escapeJs(cardId)}', '${safeTokenId}')">
+                    <span class="quota-inline-summary" id="quota-summary-${escapeHtml(cardId)}">📊 加载中...</span>
+                </div>
+                <div class="quota-inline-detail hidden" id="quota-detail-${escapeHtml(cardId)}"></div>
+            </div>
             <div class="token-actions">
                 <button class="btn btn-info btn-xs" onclick="showQuotaModal('${safeTokenId}')" title="查看额度">📊 详情</button>
                 <button class="btn ${token.enable ? 'btn-warning' : 'btn-success'} btn-xs" onclick="toggleToken('${safeTokenId}', ${!token.enable})" title="${token.enable ? '禁用' : '启用'}">
@@ -1066,6 +1076,7 @@ function renderTokens(tokens) {
     });
 
     updateSensitiveInfoDisplay();
+    updateBatchActionBar();
 
     // 重置动画跳过标志
     skipAnimation = false;
@@ -1348,6 +1359,7 @@ async function deleteToken(tokenId) {
         hideLoading();
         if (data.success) {
             showToast('已删除', 'success');
+            selectedTokenIds.delete(tokenId);
             loadTokens();
         } else {
             showToast(data.message || '删除失败', 'error');
@@ -1355,6 +1367,132 @@ async function deleteToken(tokenId) {
     } catch (error) {
         hideLoading();
         showToast('删除失败: ' + error.message, 'error');
+    }
+}
+
+// 单个 Token 选择切换
+function toggleSelectToken(tokenId, isSelected) {
+    if (isSelected) {
+        selectedTokenIds.add(tokenId);
+    } else {
+        selectedTokenIds.delete(tokenId);
+    }
+
+    const cardId = tokenId.substring(0, 8);
+    const card = document.getElementById(`card-${cardId}`);
+    if (card) {
+        card.classList.toggle('selected', isSelected);
+    }
+
+    updateBatchActionBar();
+}
+
+// 全选/取消全选当前可见列表
+function toggleSelectAllTokens(selectAll) {
+    let filteredTokens = cachedTokens;
+    if (currentFilter === 'enabled') {
+        filteredTokens = cachedTokens.filter(t => t.enable);
+    } else if (currentFilter === 'disabled') {
+        filteredTokens = cachedTokens.filter(t => !t.enable);
+    }
+
+    if (selectAll) {
+        filteredTokens.forEach(t => selectedTokenIds.add(t.id));
+    } else {
+        filteredTokens.forEach(t => selectedTokenIds.delete(t.id));
+    }
+
+    // 更新 DOM
+    document.querySelectorAll('.item-token-checkbox').forEach(cb => {
+        const tid = cb.getAttribute('data-token-id');
+        cb.checked = selectedTokenIds.has(tid);
+        const cardId = tid.substring(0, 8);
+        const card = document.getElementById(`card-${cardId}`);
+        if (card) {
+            card.classList.toggle('selected', cb.checked);
+        }
+    });
+
+    updateBatchActionBar();
+}
+
+// 取消所有选择
+function clearSelectedTokens() {
+    selectedTokenIds.clear();
+    document.querySelectorAll('.item-token-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    document.querySelectorAll('.token-card.selected').forEach(card => {
+        card.classList.remove('selected');
+    });
+    updateBatchActionBar();
+}
+
+// 更新批量操作工具栏状态
+function updateBatchActionBar() {
+    const bar = document.getElementById('batchActionBar');
+    if (!bar) return;
+
+    let filteredTokens = cachedTokens;
+    if (currentFilter === 'enabled') {
+        filteredTokens = cachedTokens.filter(t => t.enable);
+    } else if (currentFilter === 'disabled') {
+        filteredTokens = cachedTokens.filter(t => !t.enable);
+    }
+
+    const visibleCount = filteredTokens.length;
+    const selectedVisibleCount = filteredTokens.filter(t => selectedTokenIds.has(t.id)).length;
+
+    const countElem = document.getElementById('selectedTokensCount');
+    const visibleCountElem = document.getElementById('visibleTokensCount');
+    const selectAllCheckbox = document.getElementById('selectAllTokensCheckbox');
+
+    if (countElem) countElem.textContent = selectedTokenIds.size;
+    if (visibleCountElem) visibleCountElem.textContent = visibleCount;
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = visibleCount > 0 && selectedVisibleCount === visibleCount;
+        selectAllCheckbox.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleCount;
+    }
+
+    if (selectedTokenIds.size > 0) {
+        bar.classList.remove('hidden');
+    } else {
+        bar.classList.add('hidden');
+    }
+}
+
+// 批量删除选中的 Tokens
+async function batchDeleteTokens() {
+    if (selectedTokenIds.size === 0) {
+        showToast('请先勾选要删除的 Token', 'warning');
+        return;
+    }
+
+    const count = selectedTokenIds.size;
+    const confirmed = await showConfirm(`确定要批量删除选中的 ${count} 个 Token 吗？此操作不可逆！`, '⚠️ 批量删除确认');
+    if (!confirmed) return;
+
+    showLoading(`正在批量删除 ${count} 个 Token...`);
+    try {
+        const response = await authFetch('/admin/tokens/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tokenIds: Array.from(selectedTokenIds) })
+        });
+
+        const data = await response.json();
+        hideLoading();
+        if (data.success) {
+            showToast(data.message || `成功删除 ${count} 个 Token`, 'success');
+            selectedTokenIds.clear();
+            loadTokens();
+        } else {
+            showToast(data.message || '批量删除失败', 'error');
+        }
+    } catch (error) {
+        hideLoading();
+        showToast('批量删除失败: ' + error.message, 'error');
     }
 }
 

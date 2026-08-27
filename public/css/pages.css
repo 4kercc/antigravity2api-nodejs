@@ -501,6 +501,83 @@ button.loading::after {
     color: var(--danger);
 }
 
+/* Token 卡片多选支持 */
+.token-card.selected {
+    border-color: var(--primary) !important;
+    background: rgba(8, 145, 178, 0.05) !important;
+    box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.25) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    .token-card.selected {
+        background: rgba(8, 145, 178, 0.12) !important;
+    }
+}
+
+.token-checkbox-wrapper {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 2px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.token-checkbox {
+    width: 16px;
+    height: 16px;
+    min-height: 16px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+/* 批量操作浮动栏 */
+.batch-actions-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.875rem;
+    margin-bottom: 0.75rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    animation: slideInDown 0.25s ease;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.batch-actions-bar.hidden {
+    display: none !important;
+}
+
+.batch-select-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text);
+}
+
+.batch-actions-btns {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 /* 空状态 */
 .empty-state {
     text-align: center;

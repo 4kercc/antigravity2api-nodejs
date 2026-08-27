@@ -725,6 +725,45 @@ class TokenManager {
   }
 
   /**
+   * 根据 tokenId 批量删除 token
+   * @param {Array<string>} tokenIds - Token ID 数组
+   * @returns {Promise<Object>} 操作结果
+   */
+  async deleteTokensByIds(tokenIds) {
+    try {
+      if (!Array.isArray(tokenIds) || tokenIds.length === 0) {
+        return { success: false, message: '请提供要删除的 Token 列表' };
+      }
+
+      await this._ensureInitialized();
+      const targetSet = new Set(tokenIds);
+      let deletedCount = 0;
+
+      for (const tid of targetSet) {
+        if (this.pool.remove(tid)) {
+          deletedCount++;
+        }
+      }
+
+      // 持久化
+      const allTokens = await this.store.readAll();
+      const filteredTokens = [];
+      for (const token of allTokens) {
+        const tid = await this.pool.generateTokenId(token);
+        if (!targetSet.has(tid)) {
+          filteredTokens.push(token);
+        }
+      }
+
+      await this.store.writeAll(filteredTokens);
+      return { success: true, message: `成功删除 ${deletedCount} 个 Token`, count: deletedCount };
+    } catch (error) {
+      log.error('批量删除Token失败:', error.message);
+      return { success: false, message: error.message };
+    }
+  }
+
+  /**
    * 根据 tokenId 刷新 token
    * @param {string} tokenId - Token ID
    * @returns {Promise<Object>} 刷新后的 token 信息

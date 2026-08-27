@@ -430,6 +430,23 @@ router.delete('/tokens/:tokenId', cookieAuthMiddleware, async (req, res) => {
   }
 });
 
+// 批量删除 Tokens
+router.post('/tokens/batch-delete', cookieAuthMiddleware, async (req, res) => {
+  const { tokenIds } = req.body;
+  if (!Array.isArray(tokenIds) || tokenIds.length === 0) {
+    return res.status(400).json({ success: false, message: '请选择要删除的 Token' });
+  }
+
+  try {
+    const result = await tokenManager.deleteTokensByIds(tokenIds);
+    logger.info(`批量删除 ${result.count || 0} 个 Token`);
+    res.json(result);
+  } catch (error) {
+    logger.error('批量删除Token失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.post('/tokens/reload', cookieAuthMiddleware, async (req, res) => {
   try {
     await tokenManager.reload();
