@@ -178,7 +178,11 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
         } catch (err) {
           clearInterval(heartbeatTimer);
           logger.error(`外部渠道 [${chan.name}] 处理 Gemini 流式请求失败:`, err.message);
-          return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+          if (!res.headersSent) {
+            return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+          } else {
+            return endStream(res);
+          }
         }
       } else {
         // 非流式
@@ -193,7 +197,9 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
           return res.json(createGeminiResponse(resp.content, resp.reasoning, null, resp.toolCalls, resp.usage));
         } catch (err) {
           logger.error(`外部渠道 [${chan.name}] 处理 Gemini 非流式请求失败:`, err.message);
-          return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+          if (!res.headersSent) {
+            return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+          }
         }
       }
     };

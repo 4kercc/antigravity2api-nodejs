@@ -103,11 +103,16 @@ export const handleOpenAIRequest = async (req, res) => {
           } else {
             channelManager.recordUsage(chan.id, null).catch(() => {});
           }
-          return endStream(res, heartbeatTimer);
+          clearInterval(heartbeatTimer);
+          return endStream(res);
         } catch (err) {
           clearInterval(heartbeatTimer);
           logger.error(`外部渠道 [${chan.name}] 处理请求失败:`, err.message);
-          return res.status(502).json({ error: `External channel error: ${err.message}` });
+          if (!res.headersSent) {
+            return res.status(502).json({ error: `External channel error: ${err.message}` });
+          } else {
+            return endStream(res);
+          }
         }
       } else {
         // 非流式
@@ -132,7 +137,9 @@ export const handleOpenAIRequest = async (req, res) => {
           }));
         } catch (err) {
           logger.error(`外部渠道 [${chan.name}] 处理非流式请求失败:`, err.message);
-          return res.status(502).json({ error: `External channel error: ${err.message}` });
+          if (!res.headersSent) {
+            return res.status(502).json({ error: `External channel error: ${err.message}` });
+          }
         }
       }
     };

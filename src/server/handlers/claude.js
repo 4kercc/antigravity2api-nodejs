@@ -192,7 +192,11 @@ export const handleClaudeRequest = async (req, res, isStream) => {
         } catch (err) {
           clearInterval(heartbeatTimer);
           logger.error(`外部渠道 [${chan.name}] 处理 Claude 请求失败:`, err.message);
-          return res.status(502).json({ error: `External channel error: ${err.message}` });
+          if (!res.headersSent) {
+            return res.status(502).json({ error: `External channel error: ${err.message}` });
+          } else {
+            return res.end();
+          }
         }
       } else {
         // 非流式
@@ -216,7 +220,9 @@ export const handleClaudeRequest = async (req, res, isStream) => {
           ));
         } catch (err) {
           logger.error(`外部渠道 [${chan.name}] 处理 Claude 非流式请求失败:`, err.message);
-          return res.status(502).json({ error: `External channel error: ${err.message}` });
+          if (!res.headersSent) {
+            return res.status(502).json({ error: `External channel error: ${err.message}` });
+          }
         }
       }
     };
