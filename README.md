@@ -1,6 +1,28 @@
 # Antigravity to OpenAI API 代理服务
 
-将 Google Antigravity API 转换为 OpenAI 兼容格式的代理服务，支持流式响应、工具调用和多账号管理。
+将 Google Antigravity API 转换为 OpenAI 兼容格式的代理服务，支持流式响应、工具调用、Thinking 深度思维链与多账号自动轮询。
+
+---
+
+## 📸 界面预览 (UI Screenshots)
+
+| 🎯 多账号配额与轮询面板 | 📊 单账号模型额度明细 |
+| :---: | :---: |
+| ![多账号大屏](docs/images/01-tokens-dashboard.png) | ![单账号额度明细](docs/images/02-token-detail-card.png) |
+
+| 🔑 API 密钥与 Token 消耗阈值 | 📈 Token 消费实时统计仪表盘 |
+| :---: | :---: |
+| ![API 密钥管理](docs/images/03-apikeys-management.png) | ![使用记录与统计](docs/images/04-usage-stats-dashboard.png) |
+
+| ⚙️ 服务器基础与 CLI 控制 | ⚡ Cloudflare WARP 本地穿透管理 |
+| :---: | :---: |
+| ![服务器配置](docs/images/05-server-settings.png) | ![WARP 管理](docs/images/06-warp-management.png) |
+
+| 🌐 域名绑定与 ACME SSL 证书管理 | 🛡️ Fail2ban 智能防御与 2FA 安全管理 |
+| :---: | :---: |
+| ![域名与证书管理](docs/images/07-ssl-management.png) | ![安全管理与 2FA](docs/images/08-security-2fa.png) |
+
+---
 
 ## ✨ 功能特性
 
