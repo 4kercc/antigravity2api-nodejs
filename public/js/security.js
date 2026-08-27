@@ -293,20 +293,27 @@ async function registerPasskey() {
   const createOptions = {
     publicKey: {
       challenge,
-      rp: { name: "Antigravity2API 管理面板" },
+      rp: {
+        id: window.location.hostname,
+        name: "Antigravity2API 管理面板"
+      },
       user: {
         id: userId,
         name: "admin",
         displayName: "系统管理员"
       },
       pubKeyCredParams: [
-        { alg: -7, type: "public-key" },  // ES256
-        { alg: -257, type: "public-key" } // RS256
+        { alg: -7, type: "public-key" },   // ES256
+        { alg: -257, type: "public-key" }, // RS256
+        { alg: -8, type: "public-key" }    // Ed25519
       ],
       authenticatorSelection: {
+        residentKey: "preferred",
+        requireResidentKey: false,
         userVerification: "preferred"
       },
-      timeout: 60000
+      timeout: 60000,
+      attestation: "none"
     }
   };
 

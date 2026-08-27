@@ -146,15 +146,18 @@ function show2FALoginModal(tempToken) {
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
 
+            const getOptions = {
+                publicKey: {
+                    challenge,
+                    rpId: window.location.hostname,
+                    timeout: 60000,
+                    userVerification: "preferred"
+                }
+            };
+
             showLoading('正在调用生物识别/通行密钥 (Windows Hello / Touch ID / 安全Key)...');
             try {
-                const assertion = await navigator.credentials.get({
-                    publicKey: {
-                        challenge,
-                        timeout: 60000,
-                        userVerification: "preferred"
-                    }
-                });
+                const assertion = await navigator.credentials.get(getOptions);
                 hideLoading();
 
                 if (!assertion) {
