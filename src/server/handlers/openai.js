@@ -78,18 +78,25 @@ export const handleOpenAIRequest = async (req, res) => {
         const heartbeatTimer = createHeartbeat(res);
         try {
           let usageData = null;
+          let contentSent = false;
+          let finishReason = 'stop';
+
           await forwardToExternalOpenAIChannel(chan, body, true, (data) => {
             if (data.type === 'usage') {
               usageData = data.usage;
             } else if (data.type === 'reasoning') {
               writeStreamData(res, createStreamChunk(id, created, model, { reasoning_content: data.reasoning_content }));
             } else if (data.type === 'tool_calls') {
+              finishReason = 'tool_calls';
               writeStreamData(res, createStreamChunk(id, created, model, { tool_calls: data.tool_calls }));
             } else if (data.type === 'content') {
+              contentSent = true;
               writeStreamData(res, createStreamChunk(id, created, model, { content: data.content }));
             }
           });
-          writeStreamData(res, { ...createStreamChunk(id, created, model, {}, 'stop'), usage: usageData });
+
+          // 如果外部服务没按标准流式分块而是静默返回，或者流式结束，发送 stop chunk
+          writeStreamData(res, { ...createStreamChunk(id, created, model, {}, finishReason), usage: usageData });
           if (usageData) {
             res.locals.tokenUsage = usageData;
             channelManager.recordUsage(chan.id, usageData).catch(() => {});

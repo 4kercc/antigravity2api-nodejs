@@ -9,19 +9,30 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 import config from '../config/config.js';
 import logger from '../utils/logger.js';
 
-function getAxiosClient() {
+function getAxiosClient(targetUrl = '') {
   const clientConfig = {
     timeout: config.timeout || 120000,
   };
 
-  if (config.proxy && typeof config.proxy === 'string') {
+  // 判断是否为本地内网/Docker 回环地址 (如 localhost, 127.0.0.1, 192.168.x, 10.x 等)
+  let isLocalAddress = false;
+  try {
+    const parsed = new URL(targetUrl);
+    const host = parsed.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
+      isLocalAddress = true;
+    }
+  } catch {}
+
+  // 只有当目标不是本地内网回环地址，且配置了 SOCKS 代理时，才走 WARP/SOCKS 代理；本地 Docker 端点直连不走 SOCKS 代理
+  if (!isLocalAddress && config.proxy && typeof config.proxy === 'string') {
     if (config.proxy.startsWith('socks')) {
       const agent = new SocksProxyAgent(config.proxy);
       clientConfig.httpAgent = agent;
       clientConfig.httpsAgent = agent;
-    } else {
-      clientConfig.proxy = false; // 或按 http 代理配置
     }
+  } else {
+    clientConfig.proxy = false;
   }
 
   return axios.create(clientConfig);
@@ -31,8 +42,8 @@ function getAxiosClient() {
  * 转发 OpenAI 兼容请求至外部渠道（支持流式与非流式）
  */
 export async function forwardToExternalOpenAIChannel(channel, payload, stream = false, onData = null) {
-  const client = getAxiosClient();
   const url = `${channel.baseUrl}/chat/completions`;
+  const client = getAxiosClient(url);
   
   const headers = {
     'Content-Type': 'application/json'
@@ -41,8 +52,22 @@ export async function forwardToExternalOpenAIChannel(channel, payload, stream = 
     headers['Authorization'] = `Bearer ${channel.apiKey}`;
   }
 
+  // 深度清洗 payload，剔除 Google Antigravity 私有非标字段，保留标准 OpenAI 参数
+  const cleanPayload = {
+    model: payload.model,
+    messages: payload.messages,
+    stream: stream ? true : false
+  };
+
+  if (payload.temperature !== undefined) cleanPayload.temperature = payload.temperature;
+  if (payload.top_p !== undefined) cleanPayload.top_p = payload.top_p;
+  if (payload.max_tokens !== undefined) cleanPayload.max_tokens = payload.max_tokens;
+  if (payload.tools !== undefined) cleanPayload.tools = payload.tools;
+  if (payload.tool_choice !== undefined) cleanPayload.tool_choice = payload.tool_choice;
+  if (payload.response_format !== undefined) cleanPayload.response_format = payload.response_format;
+
   if (stream) {
-    const response = await client.post(url, { ...payload, stream: true }, {
+    const response = await client.post(url, cleanPayload, {
       headers,
       responseType: 'stream'
     });
@@ -111,7 +136,7 @@ export async function forwardToExternalOpenAIChannel(channel, payload, stream = 
     });
   } else {
     // 非流式请求
-    const response = await client.post(url, { ...payload, stream: false }, { headers });
+    const response = await client.post(url, cleanPayload, { headers });
     const data = response.data;
     const choice = data.choices?.[0];
     const message = choice?.message || {};
@@ -129,13 +154,13 @@ export async function forwardToExternalOpenAIChannel(channel, payload, stream = 
  * 在线测试外部渠道的连通性与延迟
  */
 export async function testExternalChannel(channel, customModel = null) {
-  const client = getAxiosClient();
-  const startTime = Date.now();
   const testModel = customModel || (channel.models && channel.models.length > 0 && channel.models[0] !== '*' 
     ? channel.models[0] 
     : 'gemini-2.5-flash');
 
   const url = `${channel.baseUrl}/chat/completions`;
+  const client = getAxiosClient(url);
+  const startTime = Date.now();
   const headers = { 'Content-Type': 'application/json' };
   if (channel.apiKey) {
     headers['Authorization'] = `Bearer ${channel.apiKey}`;
