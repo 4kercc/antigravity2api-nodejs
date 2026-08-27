@@ -25,6 +25,8 @@ import apiKeyManager from '../auth/api_key_manager.js';
 import { getCertificateInfo, verifyDomainDNS, issueAcmeCert, generateSelfSignedCert, updateCustomCert, saveCertMeta } from '../utils/sslManager.js';
 import { get2FAConfig, save2FAConfig, generateSecret, generateTOTP, verifyTOTP, generateBackupCodes, consumeBackupCode } from '../utils/totpManager.js';
 import warpManager from '../utils/warpManager.js';
+import channelManager from '../utils/channelManager.js';
+import { testExternalChannel } from '../api/externalChannelClient.js';
 import { server } from '../server/index.js';
 import dotenv from 'dotenv';
 
@@ -1711,6 +1713,82 @@ router.post('/warp/quick-setup', cookieAuthMiddleware, async (req, res) => {
   } catch (error) {
     logger.error('一键安装 WARP 失败:', error.message);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ==================== 外部上游渠道分流管理 API ====================
+
+// 获取所有外部渠道
+router.get('/channels', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const channels = await channelManager.getChannels();
+    res.json({ success: true, data: channels });
+  } catch (error) {
+    logger.error('获取外部渠道列表失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 新增外部渠道
+router.post('/channels', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const { name, baseUrl, apiKey, models, enable, priority, type } = req.body;
+    if (!baseUrl) {
+      return res.status(400).json({ success: false, message: '渠道基础 URL (Base URL) 必填' });
+    }
+    const newChan = await channelManager.addChannel({ name, baseUrl, apiKey, models, enable, priority, type });
+    res.json({ success: true, message: `外部渠道 [${newChan.name}] 添加成功！`, data: newChan });
+  } catch (error) {
+    logger.error('添加外部渠道失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 更新外部渠道
+router.put('/channels/:id', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    const updated = await channelManager.updateChannel(id, updates);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: '未找到该渠道' });
+    }
+    res.json({ success: true, message: '渠道配置更新成功！', data: updated });
+  } catch (error) {
+    logger.error('更新外部渠道失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 删除外部渠道
+router.delete('/channels/:id', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = await channelManager.deleteChannel(id);
+    if (success) {
+      res.json({ success: true, message: '外部渠道已删除' });
+    } else {
+      res.status(404).json({ success: false, message: '渠道不存在或已被删除' });
+    }
+  } catch (error) {
+    logger.error('删除外部渠道失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 在线测试外部渠道连通性
+router.post('/channels/:id/test', cookieAuthMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const chan = await channelManager.getChannelById(id);
+    if (!chan) {
+      return res.status(404).json({ success: false, message: '渠道不存在' });
+    }
+    const result = await testExternalChannel(chan);
+    res.json({ success: true, message: `连通性测试通过！延迟: ${result.latencyMs}ms`, data: result });
+  } catch (error) {
+    logger.error(`测试渠道失败:`, error.message);
+    res.status(500).json({ success: false, message: `连接测试失败: ${error.message}` });
   }
 });
 

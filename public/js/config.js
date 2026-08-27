@@ -213,18 +213,22 @@ async function loadConfig() {
                 setActiveSettingSection(activeSettingSectionId, false);
             }
             
-            // 加载IP封禁列表
-            if (typeof loadBlockedIPs === 'function') {
-                loadBlockedIPs();
-            }
-            // 加载白名单
-            if (typeof loadWhitelistIPs === 'function') {
-                loadWhitelistIPs();
-            }
-            // 加载 2FA 状态
-            if (typeof load2FAStatus === 'function') {
-                load2FAStatus();
-            }
+	            // 加载外部渠道列表
+	            if (typeof loadChannels === 'function') {
+	                loadChannels();
+	            }
+	            // 加载IP封禁列表
+	            if (typeof loadBlockedIPs === 'function') {
+	                loadBlockedIPs();
+	            }
+	            // 加载白名单
+	            if (typeof loadWhitelistIPs === 'function') {
+	                loadWhitelistIPs();
+	            }
+	            // 加载 2FA 状态
+	            if (typeof load2FAStatus === 'function') {
+	                load2FAStatus();
+	            }
         }
     } catch (error) {
         showToast('加载配置失败: ' + error.message, 'error');

@@ -515,6 +515,7 @@
                                 <select class="settings-section-select" id="settingsSectionSelect"
                                     onchange="setActiveSettingSection(this.value, true)">
                                     <option value="section-server">🖥️ 服务器</option>
+                                    <option value="section-channels">🔀 外部渠道分流 (AIStudio)</option>
                                     <option value="section-warp">🌐 网络与 WARP 代理</option>
                                     <option value="section-ssl">🔒 域名与证书</option>
                                     <option value="section-model">🎛️ 模型参数</option>
@@ -524,6 +525,8 @@
                                 <div class="settings-nav-list">
                                     <button type="button" class="settings-nav-item" data-target="section-server"
                                         onclick="setActiveSettingSection('section-server', true)">🖥️ 服务器</button>
+                                    <button type="button" class="settings-nav-item" data-target="section-channels"
+                                        onclick="setActiveSettingSection('section-channels', true)">🔀 外部渠道分流 (AIStudio)</button>
                                     <button type="button" class="settings-nav-item" data-target="section-warp"
                                         onclick="setActiveSettingSection('section-warp', true)">🌐 网络与 WARP 代理</button>
                                     <button type="button" class="settings-nav-item" data-target="section-ssl"
@@ -606,6 +609,21 @@
                                                 <input type="text" name="PROXY" id="proxyInput" placeholder="socks5://127.0.0.1:40000 或 http://127.0.0.1:7890">
                                                 <button type="button" class="btn btn-info btn-sm" id="testProxyBtn" onclick="testProxyConnectivity()" style="white-space: nowrap;">⚡ 测试连通性</button>
                                             </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 外部渠道分流 (AIStudioToAPI / OneAPI) 管理 -->
+                                    <div class="config-section" id="section-channels">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                            <h4>🔀 外部上游渠道分流 (AIStudio / OneAPI)</h4>
+                                            <button type="button" class="btn btn-sm btn-success" onclick="showAddChannelModal()">➕ 添加外部渠道</button>
+                                        </div>
+                                        <p style="font-size: 0.85rem; color: var(--text-muted, #64748b); margin-bottom: 12px;">
+                                            用于消化因 Google 风控提示“无法验证您的身份”而无法登录客户端的账号。可将 <strong>AIStudioToAPI</strong>（如 <code>http://127.0.0.1:8088/v1</code>）或 OneAPI 等作为上游渠道无缝接入混合轮询或故障降级。
+                                        </p>
+
+                                        <div id="channelsListContainer" style="display: flex; flex-direction: column; gap: 12px;">
+                                            <div class="empty-state-small">正在加载外部渠道列表...</div>
                                         </div>
                                     </div>
 
@@ -1029,6 +1047,7 @@
     <script src="js/tokens.js" defer></script>
     <script src="js/apikeys.js" defer></script>
     <script src="js/geminicli.js" defer></script>
+    <script src="js/channels.js" defer></script>
     <script src="js/config.js" defer></script>
     <script src="js/security.js" defer></script>
     <script src="js/usage-query.js" defer></script>

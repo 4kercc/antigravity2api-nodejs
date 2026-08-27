@@ -4,6 +4,8 @@
  */
 
 import { generateAssistantResponse, generateAssistantResponseNoStream, getModelsWithQuotas } from '../../api/client.js';
+import { forwardToExternalOpenAIChannel } from '../../api/externalChannelClient.js';
+import channelManager from '../../utils/channelManager.js';
 import { generateRequestBody, prepareImageRequest } from '../../utils/utils.js';
 import { buildOpenAIErrorPayload } from '../../utils/errors.js';
 import logger from '../../utils/logger.js';
@@ -62,8 +64,66 @@ export const handleOpenAIRequest = async (req, res) => {
       return true;
     };
 
-    if (!await applyTokenState(await tokenManager.getToken(model))) {
-      throw new Error('没有可用的token，请运行 npm run login 获取token');
+    const nativeToken = await tokenManager.getToken(model);
+    const hasNativeToken = nativeToken && await applyTokenState(nativeToken);
+
+    // 检查是否有可用的外部上游渠道（如 AIStudioToAPI / OneAPI）
+    const externalChannel = await channelManager.getChannel(model);
+
+    // 如果没有原生 Token，但配置了外部渠道，则无缝通过外部渠道提供服务
+    if (!hasNativeToken) {
+      if (externalChannel) {
+        logger.info(`🔄 原生 Token 未就绪，切换至外部上游渠道提供服务: [${externalChannel.name}] (${model})`);
+        const { id, created } = createResponseMeta();
+
+        if (stream) {
+          setStreamHeaders(res);
+          const heartbeatTimer = createHeartbeat(res);
+          try {
+            let usageData = null;
+            await forwardToExternalOpenAIChannel(externalChannel, body, true, (data) => {
+              if (data.type === 'usage') {
+                usageData = data.usage;
+              } else if (data.type === 'reasoning') {
+                writeStreamData(res, createStreamChunk(id, created, model, { reasoning_content: data.reasoning_content }));
+              } else if (data.type === 'tool_calls') {
+                writeStreamData(res, createStreamChunk(id, created, model, { tool_calls: data.tool_calls }));
+              } else if (data.type === 'content') {
+                writeStreamData(res, createStreamChunk(id, created, model, { content: data.content }));
+              }
+            });
+            writeStreamData(res, { ...createStreamChunk(id, created, model, {}, 'stop'), usage: usageData });
+            if (usageData) res.locals.tokenUsage = usageData;
+            return endStream(res, heartbeatTimer);
+          } catch (err) {
+            clearInterval(heartbeatTimer);
+            logger.error(`外部渠道 [${externalChannel.name}] 处理请求失败:`, err.message);
+            return res.status(502).json({ error: `External channel error: ${err.message}` });
+          }
+        } else {
+          // 非流式
+          try {
+            const resp = await forwardToExternalOpenAIChannel(externalChannel, body, false);
+            if (resp.usage) res.locals.tokenUsage = resp.usage;
+            return res.json(createOpenAIChatCompletionResponse({
+              id,
+              created,
+              model,
+              content: resp.content,
+              reasoningContent: resp.reasoning,
+              toolCalls: resp.toolCalls,
+              usage: resp.usage,
+              passSignatureToClient: false,
+              stripToolCallSignature: true
+            }));
+          } catch (err) {
+            logger.error(`外部渠道 [${externalChannel.name}] 处理非流式请求失败:`, err.message);
+            return res.status(502).json({ error: `External channel error: ${err.message}` });
+          }
+        }
+      }
+
+      throw new Error('没有可用的token，请运行 npm run login 获取token 或在设置中添加外部上游渠道');
     }
 
     const refreshQuota = async () => {
