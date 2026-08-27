@@ -59,6 +59,7 @@ function renderChannels(channels) {
               <span class="slider"></span>
             </label>
             <button type="button" class="btn btn-sm btn-info" onclick="testChannelConnectivity('${c.id}')" title="在线测试该端点延迟">⚡ 测速</button>
+            <button type="button" class="btn btn-sm btn-warning" onclick="showEditChannelModal('${c.id}')" title="编辑该渠道配置">✏️ 编辑</button>
             <button type="button" class="btn btn-sm btn-danger" onclick="deleteChannel('${c.id}', '${escapeHtml(c.name)}')" title="删除该渠道">🗑️</button>
           </div>
         </div>
@@ -165,6 +166,109 @@ function showAddChannelModal() {
     } catch (e) {
       hideLoading();
       showToast('请求异常: ' + e.message, 'error');
+    }
+  };
+}
+
+async function showEditChannelModal(id) {
+  const chan = cachedChannels.find(c => c.id === id);
+  if (!chan) {
+    showToast('未找到该渠道信息', 'error');
+    return;
+  }
+
+  const modal = document.createElement('div');
+  modal.className = 'modal form-modal';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="modal-title">✏️ 编辑外部上游渠道配置</div>
+      
+      <div class="form-group compact" style="margin-top: 12px;">
+        <label>渠道名称</label>
+        <input type="text" id="editChanNameInput" value="${escapeHtml(chan.name || '')}">
+      </div>
+
+      <div class="form-group compact">
+        <label>渠道类型</label>
+        <select id="editChanTypeInput">
+          <option value="openai" ${chan.type === 'openai' ? 'selected' : ''}>OpenAI 兼容接口 (/v1/chat/completions)</option>
+        </select>
+      </div>
+
+      <div class="form-group compact">
+        <label>Base URL (基础接口地址) *</label>
+        <input type="text" id="editChanBaseUrlInput" value="${escapeHtml(chan.baseUrl || '')}">
+      </div>
+
+      <div class="form-group compact">
+        <label>API Key (留空表示不修改原密钥)</label>
+        <input type="password" id="editChanApiKeyInput" placeholder="如需修改请输入新Key，否则留空">
+      </div>
+
+      <div class="form-group compact">
+        <label>支持的模型列表 (英文逗号分隔，留空表示支持全部)</label>
+        <input type="text" id="editChanModelsInput" value="${escapeHtml((chan.models || []).join(', '))}">
+      </div>
+
+      <div class="form-group compact">
+        <label>优先级 (默认 10，数值越小优先级越高)</label>
+        <input type="number" id="editChanPriorityInput" value="${chan.priority || 10}" min="1" max="100">
+      </div>
+
+      <div class="modal-actions" style="margin-top: 1.5rem;">
+        <button type="button" class="btn btn-secondary" id="cancelEditChanBtn">取消</button>
+        <button type="button" class="btn btn-primary" id="confirmEditChanBtn">💾 保存修改</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.querySelector('#cancelEditChanBtn').onclick = () => modal.remove();
+  modal.querySelector('#confirmEditChanBtn').onclick = async () => {
+    const name = modal.querySelector('#editChanNameInput').value.trim();
+    const type = modal.querySelector('#editChanTypeInput').value;
+    const baseUrl = modal.querySelector('#editChanBaseUrlInput').value.trim();
+    const apiKey = modal.querySelector('#editChanApiKeyInput').value.trim();
+    const modelsStr = modal.querySelector('#editChanModelsInput').value.trim();
+    const priority = Number(modal.querySelector('#editChanPriorityInput').value) || 10;
+
+    if (!baseUrl) {
+      showToast('请输入 Base URL', 'warning');
+      return;
+    }
+
+    const updates = {
+      name: name || chan.name,
+      type,
+      baseUrl,
+      models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+      priority
+    };
+
+    if (apiKey) {
+      updates.apiKey = apiKey;
+    }
+
+    showLoading('正在保存修改...');
+    try {
+      const res = await authFetch(`/admin/channels/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      const data = await res.json();
+      hideLoading();
+
+      if (data.success) {
+        showToast(data.message, 'success');
+        modal.remove();
+        loadChannels();
+      } else {
+        showToast(data.message || '更新失败', 'error');
+      }
+    } catch (e) {
+      hideLoading();
+      showToast('更新异常: ' + e.message, 'error');
     }
   };
 }
