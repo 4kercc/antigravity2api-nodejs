@@ -83,7 +83,7 @@ document.getElementById('login').addEventListener('submit', async (e) => {
     }
 });
 
-// 2FA 登录二次验证弹窗
+// 2FA 登录二次验证弹窗（支持 TOTP 动态码与 Passkey 通行密钥免密验证）
 function show2FALoginModal(tempToken) {
     const modal = document.createElement('div');
     modal.className = 'modal form-modal';
@@ -92,9 +92,23 @@ function show2FALoginModal(tempToken) {
         <div class="modal-content" style="max-width: 400px;">
             <div class="modal-title">🔐 双因素二次验证 (2FA)</div>
             <div style="margin-top: 10px; font-size: 0.88rem; color: var(--text-light, #666); text-align: center;">
-                账号已开启 2FA 保护，请输入 6 位动态验证码或备用恢复码
+                账号已开启 2FA 保护，请输入 6 位动态验证码、备用恢复码或使用通行密钥
             </div>
-            <form id="twoFactorLoginForm" style="margin-top: 15px;">
+
+            <!-- Passkey 通行密钥一键快捷验证按钮 -->
+            <div style="margin-top: 15px; text-align: center;">
+                <button type="button" id="usePasskeyLoginBtn" class="btn btn-info" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px;">
+                    <span>🛡️</span> <strong>使用通行密钥 (Passkey / 指纹) 登录</strong>
+                </button>
+            </div>
+
+            <div style="display: flex; align-items: center; margin: 15px 0; color: #94a3b8; font-size: 0.8rem;">
+                <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+                <span style="padding: 0 10px;">或输入验证码</span>
+                <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+            </div>
+
+            <form id="twoFactorLoginForm" style="margin-top: 5px;">
                 <div class="form-group compact">
                     <input type="text" 
                            id="login2FACodeInput" 
@@ -103,7 +117,6 @@ function show2FALoginModal(tempToken) {
                            inputmode="numeric" 
                            placeholder="6 位动态码或 8 位恢复码" 
                            style="letter-spacing: 4px; font-size: 1.1rem; text-align: center;" 
-                           required 
                            autofocus>
                 </div>
                 <div class="modal-actions" style="margin-top: 1.5rem;">
@@ -118,8 +131,66 @@ function show2FALoginModal(tempToken) {
     const form = modal.querySelector('#twoFactorLoginForm');
     const cancelBtn = modal.querySelector('#cancelLogin2FABtn');
     const codeInput = modal.querySelector('#login2FACodeInput');
+    const passkeyBtn = modal.querySelector('#usePasskeyLoginBtn');
 
     cancelBtn.addEventListener('click', () => modal.remove());
+
+    // 通行密钥 (Passkey) 认证逻辑
+    if (passkeyBtn) {
+        passkeyBtn.addEventListener('click', async () => {
+            if (!window.PublicKeyCredential) {
+                showToast('当前浏览器不支持 Passkey 通行密钥', 'warning');
+                return;
+            }
+
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+
+            showLoading('正在调用生物识别/通行密钥 (Windows Hello / Touch ID / 安全Key)...');
+            try {
+                const assertion = await navigator.credentials.get({
+                    publicKey: {
+                        challenge,
+                        timeout: 60000,
+                        userVerification: "preferred"
+                    }
+                });
+                hideLoading();
+
+                if (!assertion) {
+                    showToast('通行密钥验证取消', 'warning');
+                    return;
+                }
+
+                showLoading('正在完成登录认证...');
+                const response = await fetch('/admin/login/verify-2fa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        tempToken,
+                        passkeyCredential: { id: assertion.id }
+                    })
+                });
+
+                const data = await response.json();
+                hideLoading();
+
+                if (data.success) {
+                    modal.remove();
+                    showToast('🎉 通行密钥验证通过，登录成功', 'success');
+                    showMainContent();
+                    loadTokens();
+                    loadConfig();
+                } else {
+                    showToast(data.message || '通行密钥校验失败', 'error');
+                }
+            } catch (err) {
+                hideLoading();
+                showToast('通行密钥验证失败: ' + err.message, 'error');
+            }
+        });
+    }
 
     // 自动聚焦输入框
     setTimeout(() => {

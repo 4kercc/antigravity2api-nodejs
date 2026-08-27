@@ -130,12 +130,18 @@ export function get2FAConfig() {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const content = fs.readFileSync(CONFIG_PATH, 'utf8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      return {
+        enabled: !!parsed.enabled,
+        secret: parsed.secret || null,
+        backupCodes: Array.isArray(parsed.backupCodes) ? parsed.backupCodes : [],
+        passkeys: Array.isArray(parsed.passkeys) ? parsed.passkeys : [] // 通行密钥 (WebAuthn)
+      };
     }
   } catch (error) {
     logger.error('读取 2FA 配置文件失败:', error.message);
   }
-  return { enabled: false, secret: null, backupCodes: [] };
+  return { enabled: false, secret: null, backupCodes: [], passkeys: [] };
 }
 
 /**

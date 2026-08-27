@@ -227,12 +227,14 @@ async function load2FAStatus() {
     const res = await authFetch('/admin/2fa/status');
     const data = await res.json();
     if (data.success) {
-      const { enabled, remainingBackupCodes } = data.data;
+      const { enabled, remainingBackupCodes, passkeys } = data.data;
       const badge = document.getElementById('twoFactorStatusBadge');
       const enableBtn = document.getElementById('twoFactorEnableBtn');
       const disableBtn = document.getElementById('twoFactorDisableBtn');
       const backupInfo = document.getElementById('twoFactorBackupCodesInfo');
       const backupCount = document.getElementById('twoFactorBackupCodesCount');
+      const passkeyContainer = document.getElementById('passkeyListContainer');
+      const passkeyList = document.getElementById('passkeyItemsList');
 
       if (badge) {
         badge.textContent = enabled ? '已开启' : '未开启';
@@ -241,16 +243,127 @@ async function load2FAStatus() {
       if (enableBtn) enableBtn.style.display = enabled ? 'none' : 'inline-block';
       if (disableBtn) disableBtn.style.display = enabled ? 'inline-block' : 'none';
       if (backupInfo && backupCount) {
-        if (enabled) {
+        if (enabled && remainingBackupCodes > 0) {
           backupInfo.style.display = 'block';
           backupCount.textContent = remainingBackupCodes || 0;
         } else {
           backupInfo.style.display = 'none';
         }
       }
+
+      // 渲染已绑定的通行密钥列表
+      if (passkeyContainer && passkeyList) {
+        if (Array.isArray(passkeys) && passkeys.length > 0) {
+          passkeyContainer.style.display = 'block';
+          passkeyList.innerHTML = passkeys.map(p => `
+            <div style="display: flex; justify-content: space-between; align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px;">
+              <div>
+                <strong>🔑 ${escapeHtml(p.name)}</strong>
+                <span style="color: #64748b; font-size: 0.78rem; margin-left: 8px;">ID: ${escapeHtml(p.id.substring(0, 12))}...</span>
+              </div>
+              <button type="button" class="btn btn-sm btn-danger" onclick="deletePasskey('${p.id}', '${escapeHtml(p.name)}')" style="padding: 2px 8px; font-size: 0.75rem;">移除</button>
+            </div>
+          `).join('');
+        } else {
+          passkeyContainer.style.display = 'none';
+          passkeyList.innerHTML = '';
+        }
+      }
     }
   } catch (err) {
     console.error('获取 2FA 状态失败:', err);
+  }
+}
+
+// 绑定/注册 WebAuthn 通行密钥 (Passkey)
+async function registerPasskey() {
+  if (!window.PublicKeyCredential) {
+    showToast('当前浏览器环境不支持 WebAuthn / 通行密钥 (Passkey)', 'error');
+    return;
+  }
+
+  const keyName = prompt('请为这个通行密钥命名 (例如: 我的 MacBook 指纹 / Windows Hello / YubiKey):', '我的通行密钥');
+  if (keyName === null) return;
+
+  const challenge = new Uint8Array(32);
+  window.crypto.getRandomValues(challenge);
+  const userId = new Uint8Array(16);
+  window.crypto.getRandomValues(userId);
+
+  const createOptions = {
+    publicKey: {
+      challenge,
+      rp: { name: "Antigravity2API 管理面板" },
+      user: {
+        id: userId,
+        name: "admin",
+        displayName: "系统管理员"
+      },
+      pubKeyCredParams: [
+        { alg: -7, type: "public-key" },  // ES256
+        { alg: -257, type: "public-key" } // RS256
+      ],
+      authenticatorSelection: {
+        userVerification: "preferred"
+      },
+      timeout: 60000
+    }
+  };
+
+  showLoading('请在弹出的系统提示中进行生物识别（指纹/人脸/PIN/安全密钥）...');
+  try {
+    const credential = await navigator.credentials.create(createOptions);
+    hideLoading();
+    if (!credential) {
+      showToast('通行密钥创建已取消', 'warning');
+      return;
+    }
+
+    const passkeyId = credential.id;
+    showLoading('正在保存通行密钥...');
+    const res = await authFetch('/admin/2fa/passkey/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        passkeyId,
+        name: keyName.trim() || '我的通行密钥'
+      })
+    });
+    const data = await res.json();
+    hideLoading();
+
+    if (data.success) {
+      showToast('🎉 通行密钥绑定成功！下次登录可直接免输动态码', 'success');
+      load2FAStatus();
+    } else {
+      showToast(data.message || '绑定失败', 'error');
+    }
+  } catch (err) {
+    hideLoading();
+    showToast('通行密钥注册失败: ' + err.message, 'error');
+  }
+}
+
+// 移除通行密钥
+async function deletePasskey(id, name) {
+  if (!confirm(`确定要移除通行密钥 [${name}] 吗？`)) return;
+
+  showLoading('正在删除...');
+  try {
+    const res = await authFetch(`/admin/2fa/passkey/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    hideLoading();
+    if (data.success) {
+      showToast(data.message, 'success');
+      load2FAStatus();
+    } else {
+      showToast(data.message || '删除失败', 'error');
+    }
+  } catch (err) {
+    hideLoading();
+    showToast('删除失败: ' + err.message, 'error');
   }
 }
 

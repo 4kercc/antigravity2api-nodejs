@@ -1019,22 +1019,28 @@
                                             <div id="whitelistIPsList" class="whitelist-ips-list"></div>
                                         </div>
 
-                                        <!-- 双因素身份验证 (2FA / TOTP) 管理 -->
+                                        <!-- 双因素身份验证 (2FA / TOTP) 与通行密钥 (Passkey) 管理 -->
                                         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed var(--border-color, #e2e8f0);">
-                                            <h5>🔑 双因素身份验证 (2FA / TOTP)</h5>
+                                            <h5>🔑 双因素身份验证 (2FA / TOTP) 与通行密钥 (Passkey)</h5>
                                             <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 12px 16px; margin-top: 8px;">
                                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                                     <div>
                                                         <strong>2FA 保护状态:</strong>
                                                         <span id="twoFactorStatusBadge" style="font-weight: bold; margin-left: 6px; color: var(--text-light, #888);">加载中...</span>
                                                     </div>
-                                                    <div>
-                                                        <button type="button" id="twoFactorEnableBtn" onclick="show2FASetupModal()" class="btn btn-sm btn-success" style="display: none;">开启 2FA 二次验证</button>
+                                                    <div style="display: flex; gap: 8px;">
+                                                        <button type="button" id="passkeyRegisterBtn" onclick="registerPasskey()" class="btn btn-sm btn-info">🛡️ 绑定通行密钥 (Passkey)</button>
+                                                        <button type="button" id="twoFactorEnableBtn" onclick="show2FASetupModal()" class="btn btn-sm btn-success" style="display: none;">开启 TOTP 动态码</button>
                                                         <button type="button" id="twoFactorDisableBtn" onclick="show2FADisableModal()" class="btn btn-sm btn-danger" style="display: none;">关闭 2FA 二次验证</button>
                                                     </div>
                                                 </div>
                                                 <div id="twoFactorBackupCodesInfo" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-light, #666); display: none;">
                                                     剩余备用恢复码数量: <span id="twoFactorBackupCodesCount" style="font-weight: bold; color: var(--primary);">0</span> 个
+                                                </div>
+                                                <!-- 已绑定的通行密钥列表 -->
+                                                <div id="passkeyListContainer" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e2e8f0; font-size: 0.85rem; display: none;">
+                                                    <strong style="color: var(--text-color);">已绑定的通行密钥 (Passkey):</strong>
+                                                    <div id="passkeyItemsList" style="margin-top: 6px; display: flex; flex-direction: column; gap: 6px;"></div>
                                                 </div>
                                             </div>
                                         </div>

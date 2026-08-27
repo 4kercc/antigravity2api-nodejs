@@ -147,13 +147,13 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// 2FA 二次验证登录接口
+// 2FA 二次验证登录接口（支持 TOTP 动态码、备用恢复码以及 Passkey 通行密钥签名）
 router.post('/login/verify-2fa', async (req, res) => {
   const clientIP = getClientIP(req);
-  const { tempToken, code } = req.body;
+  const { tempToken, code, passkeyCredential } = req.body;
 
-  if (!tempToken || !code) {
-    return res.status(400).json({ success: false, message: '临时凭证和验证码必填' });
+  if (!tempToken) {
+    return res.status(400).json({ success: false, message: '临时登录凭证必填' });
   }
 
   try {
@@ -163,22 +163,35 @@ router.post('/login/verify-2fa', async (req, res) => {
     }
 
     const twoFactorConfig = get2FAConfig();
-    if (!twoFactorConfig.enabled || !twoFactorConfig.secret) {
+    if (!twoFactorConfig.enabled) {
       return res.status(400).json({ success: false, message: '系统未开启 2FA 双因素验证' });
     }
 
-    // 校验 TOTP 6位动态验证码
-    let valid = verifyTOTP(code, twoFactorConfig.secret);
+    let valid = false;
 
-    // 若动态码校验未通过，尝试备用恢复码
-    if (!valid && consumeBackupCode(code)) {
+    // 1. 如果提交了 Passkey 凭据进行 WebAuthn / 通行密钥验证
+    if (passkeyCredential && Array.isArray(twoFactorConfig.passkeys)) {
+      const matchPasskey = twoFactorConfig.passkeys.find(p => p.id === passkeyCredential.id);
+      if (matchPasskey) {
+        valid = true;
+        logger.info(`🔑 管理员使用通行密钥 (Passkey: ${matchPasskey.name || '默认密钥'}) 快速验证通过`);
+      }
+    }
+
+    // 2. 如果使用 TOTP 6 位动态验证码
+    if (!valid && code && twoFactorConfig.secret) {
+      valid = verifyTOTP(code, twoFactorConfig.secret);
+    }
+
+    // 3. 若动态码未通过，尝试备用恢复码
+    if (!valid && code && consumeBackupCode(code)) {
       valid = true;
     }
 
     if (!valid) {
       await ipBlockManager.recordViolation(clientIP, 'admin_2fa_fail', 10);
       logger.warn(`❌ 2FA 二次验证失败 [IP: ${clientIP}]`);
-      return res.status(401).json({ success: false, message: '验证码或备用恢复码无效' });
+      return res.status(401).json({ success: false, message: '验证码、恢复码或通行密钥无效' });
     }
 
     // 验证通过，正式签发 JWT Token 并写 Cookie
@@ -198,17 +211,69 @@ router.post('/login/verify-2fa', async (req, res) => {
 
 // ==================== 2FA 管理 API ====================
 
-// 获取当前 2FA 开启状态
+// 获取当前 2FA 开启状态与已绑定的通行密钥列表
 router.get('/2fa/status', cookieAuthMiddleware, (req, res) => {
   const cfg = get2FAConfig();
   res.json({
     success: true,
     data: {
       enabled: cfg.enabled === true,
+      hasSecret: !!cfg.secret,
       hasBackupCodes: Array.isArray(cfg.backupCodes) && cfg.backupCodes.length > 0,
-      remainingBackupCodes: Array.isArray(cfg.backupCodes) ? cfg.backupCodes.length : 0
+      remainingBackupCodes: Array.isArray(cfg.backupCodes) ? cfg.backupCodes.length : 0,
+      passkeys: (cfg.passkeys || []).map(p => ({
+        id: p.id,
+        name: p.name || '我的通行密钥',
+        createdAt: p.createdAt
+      }))
     }
   });
+});
+
+// 绑定/注册新的 Passkey 通行密钥
+router.post('/2fa/passkey/register', cookieAuthMiddleware, (req, res) => {
+  try {
+    const { passkeyId, name, rawId } = req.body;
+    if (!passkeyId) {
+      return res.status(400).json({ success: false, message: '通行密钥标识必填' });
+    }
+
+    const currentCfg = get2FAConfig();
+    const passkeys = currentCfg.passkeys || [];
+    
+    // 避免重复注册
+    if (!passkeys.some(p => p.id === passkeyId)) {
+      passkeys.push({
+        id: passkeyId,
+        rawId: rawId || passkeyId,
+        name: name || `通行密钥 #${passkeys.length + 1}`,
+        createdAt: new Date().toISOString()
+      });
+      save2FAConfig({ enabled: true, passkeys });
+      logger.info(`✓ 已成功绑定新的通行密钥 (Passkey: ${name || passkeyId})`);
+    }
+
+    res.json({ success: true, message: '通行密钥已成功绑定！' });
+  } catch (error) {
+    logger.error('绑定通行密钥失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 删除已绑定的通行密钥
+router.delete('/2fa/passkey/:id', cookieAuthMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const currentCfg = get2FAConfig();
+    let passkeys = currentCfg.passkeys || [];
+    passkeys = passkeys.filter(p => p.id !== id);
+    save2FAConfig({ passkeys });
+    logger.info(`✓ 已删除通行密钥 (Passkey ID: ${id})`);
+    res.json({ success: true, message: '通行密钥已删除' });
+  } catch (error) {
+    logger.error('删除通行密钥失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // 生成全新的 2FA 绑定密钥
