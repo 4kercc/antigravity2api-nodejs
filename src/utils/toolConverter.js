@@ -12,7 +12,7 @@ import { setToolNameMapping } from './toolNameCache.js';
  * @returns {Object} functionDeclaration 对象
  */
 function convertSingleTool(name, description, parameters, sessionId, actualModelName) {
-  const originalName = name;
+  const originalName = name || 'tool';
   const safeName = sanitizeToolName(originalName);
   
   if (actualModelName && safeName !== originalName) {
@@ -20,12 +20,16 @@ function convertSingleTool(name, description, parameters, sessionId, actualModel
   }
   
   const rawParams = parameters || {};
-  const cleanedParams = cleanParameters(rawParams) || {};
+  let cleanedParams = cleanParameters(rawParams) || {};
+  if (typeof cleanedParams !== 'object' || Array.isArray(cleanedParams)) {
+    cleanedParams = {};
+  }
   // 使用大写 OBJECT 以匹配官方 API 格式
   if (cleanedParams.type === undefined) cleanedParams.type = 'OBJECT';
   else if (cleanedParams.type === 'object') cleanedParams.type = 'OBJECT';
-  if ((cleanedParams.type === 'OBJECT' || cleanedParams.type === 'object') && cleanedParams.properties === undefined) cleanedParams.properties = {};
-  //console.log(JSON.stringify(tool,null,2),100)
+  if ((cleanedParams.type === 'OBJECT' || cleanedParams.type === 'object') && cleanedParams.properties === undefined) {
+    cleanedParams.properties = {};
+  }
   return {
     name: safeName,
     description: description || '',

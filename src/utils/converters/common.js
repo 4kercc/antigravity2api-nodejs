@@ -93,11 +93,15 @@ export function findFunctionNameById(toolCallId, antigravityMessages) {
  */
 export function pushFunctionResponse(toolCallId, functionName, resultContent, antigravityMessages) {
   const lastMessage = antigravityMessages[antigravityMessages.length - 1];
+  let outputValue = resultContent ?? '';
+  if (typeof outputValue === 'object') {
+    outputValue = JSON.stringify(outputValue);
+  }
   const functionResponse = {
     functionResponse: {
       id: toolCallId,
-      name: functionName,
-      response: { output: resultContent }
+      name: functionName || 'function',
+      response: { output: outputValue }
     }
   };
 
@@ -129,11 +133,22 @@ export function createThoughtPart(text, signature = null) {
  * @returns {Object} 函数调用 part
  */
 export function createFunctionCallPart(id, name, args, signature = null) {
+  let parsedArgs = {};
+  if (typeof args === 'string') {
+    try {
+      parsedArgs = args.trim() ? JSON.parse(args) : {};
+    } catch {
+      parsedArgs = { raw_args: args };
+    }
+  } else if (args && typeof args === 'object') {
+    parsedArgs = args;
+  }
+
   const part = {
     functionCall: {
       id,
       name,
-      args: typeof args === 'string' ? JSON.parse(args) : args
+      args: parsedArgs
     }
   };
   if (signature) {

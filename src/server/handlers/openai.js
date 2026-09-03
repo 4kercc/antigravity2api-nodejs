@@ -57,6 +57,7 @@ export const handleOpenAIRequest = async (req, res) => {
 
       token = nextToken;
       tokenId = await tokenManager.getTokenId(token);
+      res.locals.accountInfo = token.email || token.projectId || (tokenId ? `token_${tokenId.substring(0, 8)}` : '原生账号');
       requestBody = generateRequestBody(messages, model, params, tools, token);
       if (isImageModel) {
         prepareImageRequest(requestBody);
@@ -71,6 +72,7 @@ export const handleOpenAIRequest = async (req, res) => {
     const executeViaExternalChannel = async (chan) => {
       logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理请求 (${model}) [模式: ${routingMode}]`);
       res.locals.channelName = chan.name;
+      res.locals.accountInfo = `渠道:${chan.name}`;
       const { id, created } = createResponseMeta();
 
       if (stream) {
@@ -272,6 +274,14 @@ export const handleOpenAIRequest = async (req, res) => {
           endStream(res);
         }
         logger.error('生成响应失败:', error.message);
+        if (requestBody) {
+          logger.error('【400 Debug】失败时发送给 Google 的完整 requestBody:');
+          logger.error(JSON.stringify(requestBody, null, 2));
+        }
+        if (body) {
+          logger.error('【400 Debug】客户端原始传入的 req.body:');
+          logger.error(JSON.stringify(body, null, 2));
+        }
         return;
       }
     } else if (config.fakeNonStream && !isImageModel) {
@@ -392,6 +402,14 @@ export const handleOpenAIRequest = async (req, res) => {
     }
   } catch (error) {
     logger.error('生成响应失败:', error.message);
+    if (requestBody) {
+      logger.error('【400 Debug】失败时发送给 Google 的完整 requestBody:');
+      logger.error(JSON.stringify(requestBody, null, 2));
+    }
+    if (body) {
+      logger.error('【400 Debug】客户端原始传入的 req.body:');
+      logger.error(JSON.stringify(body, null, 2));
+    }
     if (res.headersSent) return;
     const statusCode = error.statusCode || error.status || 500;
     return res.status(statusCode).json(buildOpenAIErrorPayload(error, statusCode));

@@ -19,14 +19,18 @@ import {
 
 function extractImagesFromContent(content) {
   const result = { text: '', images: [] };
+  if (content === null || content === undefined) {
+    result.text = ' ';
+    return result;
+  }
   if (typeof content === 'string') {
-    result.text = content;
+    result.text = content.length > 0 ? content : ' ';
     return result;
   }
   if (Array.isArray(content)) {
     for (const item of content) {
       if (item.type === 'text') {
-        result.text += item.text;
+        result.text += item.text || '';
       } else if (item.type === 'image_url') {
         const imageUrl = item.image_url?.url || '';
         const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
@@ -41,6 +45,9 @@ function extractImagesFromContent(content) {
       }
     }
   }
+  if (!result.text && result.images.length === 0) {
+    result.text = ' ';
+  }
   return result;
 }
 
@@ -51,11 +58,11 @@ function handleAssistantMessage(message, antigravityMessages, enableThinking, ac
   
   const toolCalls = hasToolCalls
     ? message.tool_calls.map(toolCall => {
-      const safeName = processToolName(toolCall.function.name, sessionId, actualModelName);
-      const signature = enableThinking
-        ? (toolCall.thoughtSignature || toolSignature || message.thoughtSignature || reasoningSignature)
-        : null;
-      return createFunctionCallPart(toolCall.id, safeName, toolCall.function.arguments, signature);
+      const funcName = toolCall.function?.name || 'function';
+      const safeName = processToolName(funcName, sessionId, actualModelName);
+      // 工具调用始终需要签名（在有思考模型或兜底时使用）
+      const signature = (toolCall.thoughtSignature || toolSignature || message.thoughtSignature || reasoningSignature);
+      return createFunctionCallPart(toolCall.id, safeName, toolCall.function?.arguments, signature);
     })
     : [];
 
@@ -87,6 +94,9 @@ function handleAssistantMessage(message, antigravityMessages, enableThinking, ac
   if (hasContent) {
     const part = { text: message.content.trimEnd() };
     parts.push(part);
+  } else if (!hasToolCalls && parts.length === 0) {
+    // 防止生成无任何 part 的非法空 model 消息导致 400 INVALID_ARGUMENT
+    parts.push({ text: ' ' });
   }
   if (!enableThinking && parts[0]) delete parts[0].thoughtSignature;
 
@@ -101,16 +111,30 @@ function handleToolCall(message, antigravityMessages) {
 function openaiMessageToAntigravity(openaiMessages, enableThinking, actualModelName, sessionId, hasTools) {
   const antigravityMessages = [];
   for (const message of openaiMessages) {
-    if (message.role === 'user' || message.role === 'system') {
+    if (message.role === 'user') {
       const extracted = extractImagesFromContent(message.content);
       pushUserMessage(extracted, antigravityMessages);
+    } else if (message.role === 'system') {
+      // 如果没有开启 useContextSystemPrompt，system 会被作为普通 user 消息传入
+      if (!config.useContextSystemPrompt) {
+        const extracted = extractImagesFromContent(message.content);
+        pushUserMessage(extracted, antigravityMessages);
+      }
     } else if (message.role === 'assistant') {
       handleAssistantMessage(message, antigravityMessages, enableThinking, actualModelName, sessionId, hasTools);
     } else if (message.role === 'tool') {
       handleToolCall(message, antigravityMessages);
     }
   }
-  //console.log(JSON.stringify(antigravityMessages,null,2));
+
+  // 确保 contents 数组不为空
+  if (antigravityMessages.length === 0) {
+    antigravityMessages.push({
+      role: 'user',
+      parts: [{ text: ' ' }]
+    });
+  }
+
   return antigravityMessages;
 }
 

@@ -122,6 +122,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
 
       token = nextToken;
       tokenId = await tokenManager.getTokenId(token);
+      res.locals.accountInfo = token.email || token.projectId || (tokenId ? `token_${tokenId.substring(0, 8)}` : '原生账号');
       requestBody = generateGeminiRequestBody(body, modelName, token);
       if (isImageModel) {
         prepareImageRequest(requestBody);
@@ -136,6 +137,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
     const executeViaExternalChannel = async (chan) => {
       logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理 Gemini 格式请求 (${modelName}) [模式: ${routingMode}]`);
       res.locals.channelName = chan.name;
+      res.locals.accountInfo = `渠道:${chan.name}`;
 
       // 提取 Gemini contents 转换为标准 OpenAI messages
       const openAiMessages = [];

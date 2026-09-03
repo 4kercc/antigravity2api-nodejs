@@ -29,7 +29,8 @@ import { REASONING_EFFORT_MAP } from '../constants/index.js';
  */
 export function normalizeOpenAIParameters(params = {}) {
   const normalized = {
-    max_tokens: params.max_tokens ?? config.defaults.max_tokens,
+    max_tokens: params.max_tokens ?? params.max_completion_tokens ?? config.defaults.max_tokens,
+    max_completion_tokens: params.max_completion_tokens,
     temperature: params.temperature ?? config.defaults.temperature,
     top_p: params.top_p ?? config.defaults.top_p,
     top_k: params.top_k ?? config.defaults.top_k,
@@ -149,6 +150,11 @@ export function toGenerationConfig(normalized, enableThinking, actualModelName) 
   let thinkingBudget = 0;
   let actualEnableThinking = enableThinking;
   let maxOutputTokens = normalized.max_tokens || normalized.max_completion_tokens;
+  // Google Antigravity / Gemini 官方底层限制单次请求 maxOutputTokens 最大为 64000 (部分为 65536)
+  // 当客户端传入如 128000 (OpenAI/Claude 常用大值) 时自动钳制到 64000，防止 INVALID_ARGUMENT 报错
+  if (typeof maxOutputTokens === 'number' && maxOutputTokens > 64000) {
+    maxOutputTokens = 64000;
+  }
   if (enableThinking) {
     if (normalized.thinking_budget !== undefined) {
       thinkingBudget = normalized.thinking_budget || normalized.thinkingBudget;

@@ -277,11 +277,12 @@ function renderLogs() {
             second: '2-digit'
         });
 
-        // 高亮 IP 和 Tokens 消费及渠道标识（支持点击 IP 快捷加入黑名单）
+        // 高亮 IP 和 Tokens 消费及渠道标识、账号标识（支持点击 IP 快捷加入黑名单）
         let message = escapeHtml(log.message);
         message = message.replace(/\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]/g, '<span onclick="quickBlockIP(\'$1\')" title="点击快捷封禁此 IP" style="background: rgba(99, 102, 241, 0.15); color: var(--primary, #4f46e5); padding: 1px 5px; border-radius: 4px; font-weight: bold; font-family: monospace; cursor: pointer; text-decoration: underline dotted;">[$1]</span>');
         message = message.replace(/\(IP:\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\)/g, '(IP: <span onclick="quickBlockIP(\'$1\')" title="点击快捷封禁此 IP" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 1px 5px; border-radius: 4px; font-weight: bold; font-family: monospace; cursor: pointer; text-decoration: underline dotted;">$1</span>)');
         message = message.replace(/\[渠道:\s*([^\]]+)\]/g, '<span style="background: rgba(245, 158, 11, 0.15); color: #d97706; padding: 1px 6px; border-radius: 4px; font-weight: bold; margin-left: 4px;">🔀 $1</span>');
+        message = message.replace(/\[账号:\s*([^\]]+)\]/g, '<span style="background: rgba(14, 165, 233, 0.15); color: #0284c7; padding: 1px 6px; border-radius: 4px; font-weight: bold; margin-left: 4px;">👤 $1</span>');
         message = message.replace(/(\s\|\sTokens:\sIn\s\d+\s\/\sOut\s\d+\s\/\sTotal\s\d+)/g, '<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 1px 5px; border-radius: 4px; font-weight: bold;">$1</span>');
 
         if (logsState.searchKeyword) {

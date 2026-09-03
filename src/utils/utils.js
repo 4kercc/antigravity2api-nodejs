@@ -42,10 +42,11 @@ const EXCLUDED_KEYS = new Set([
   'minItems', 'maxItems', 'uniqueItems', 'exclusiveMaximum',
   'exclusiveMinimum', 'const', 'anyOf', 'oneOf', 'allOf',
   'any_of', 'one_of', 'all_of', 'multipleOf',
-  // Gemini API 不支持的高级 JSON Schema 字段
+  // Gemini API 不支持的高级 JSON Schema 字段与元数据字段
   'propertyNames', 'patternProperties', 'dependencies',
   'if', 'then', 'else', 'not', 'contentMediaType', 'contentEncoding',
-  'definitions', '$defs', '$ref', '$id', '$comment', 'undefined'
+  'definitions', '$defs', '$ref', '$id', '$comment', 'undefined',
+  'format', 'default', 'examples', 'example', 'annotations', 'metadata'
 ]);
 
 // 需要转换为大写的 type 值映射
@@ -60,9 +61,41 @@ const TYPE_UPPERCASE_MAP = {
 
 export function cleanParameters(obj) {
   if (!obj || typeof obj !== 'object') return obj;
-  const cleaned = Array.isArray(obj) ? [] : {};
-  for (const [key, value] of Object.entries(obj)) {
+
+  // 1. 如果是数组，直接递归清洗每一个子元素
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanParameters(item));
+  }
+
+  // 2. 如果定义了 const，转换为 enum: [constValue]
+  let currentObj = { ...obj };
+  if (currentObj.const !== undefined) {
+    const constVal = currentObj.const;
+    delete currentObj.const;
+    if (!currentObj.enum) {
+      currentObj.enum = [constVal];
+    }
+  }
+
+  // 3. 处理 JSON Schema 的 anyOf/oneOf/allOf（例如 computer-use 中出现的 anyOf/oneOf）
+  // 提取有效的分支转换为兼容对象
+  if (currentObj.anyOf || currentObj.oneOf || currentObj.allOf) {
+    const branches = currentObj.anyOf || currentObj.oneOf || currentObj.allOf;
+    if (Array.isArray(branches)) {
+      const nonNullBranch = branches.find(b => b && b.type !== 'null' && (b.type || b.properties));
+      if (nonNullBranch && typeof nonNullBranch === 'object') {
+        const { anyOf, oneOf, allOf, ...restParent } = currentObj;
+        const merged = { ...restParent, ...nonNullBranch };
+        return cleanParameters(merged);
+      }
+    }
+  }
+
+  const cleaned = {};
+  for (const [key, value] of Object.entries(currentObj)) {
+    // 过滤 Gemini 不支持的元数据与高级字段
     if (EXCLUDED_KEYS.has(key)) continue;
+
     if (key === 'type') {
       // 处理 type 字段
       if (typeof value === 'string') {
@@ -82,8 +115,18 @@ export function cleanParameters(obj) {
         // 其他情况，保持原值
         cleaned[key] = value;
       }
+    } else if (key === 'properties' && value && typeof value === 'object') {
+      const cleanedProps = {};
+      for (const [propName, propSchema] of Object.entries(value)) {
+        cleanedProps[propName] = cleanParameters(propSchema);
+      }
+      cleaned[key] = cleanedProps;
+    } else if (key === 'items' && value && typeof value === 'object') {
+      cleaned[key] = cleanParameters(value);
+    } else if (value && typeof value === 'object') {
+      cleaned[key] = cleanParameters(value);
     } else {
-      cleaned[key] = (value && typeof value === 'object') ? cleanParameters(value) : value;
+      cleaned[key] = value;
     }
   }
   return cleaned;
@@ -107,6 +150,15 @@ export function modelMapping(modelName) {
     const type = pattern1[1];
     if (type === 'opus') return 'claude-opus-4-5-thinking';
     return 'claude-sonnet-4-5';
+  }
+
+  // Gemini 3.8 / 3.x 动态匹配与映射
+  // e.g., gemini-3.8-flash, gemini-3.8-flash-thinking, gemini-3.8-pro 等
+  if (modelName.startsWith('gemini-3.8-flash') || modelName === 'gemini-3.8-flash') {
+    return 'gemini-3.7-flash-tiered';
+  }
+  if (modelName.startsWith('gemini-3.8-pro') || modelName === 'gemini-3.8-pro') {
+    return 'gemini-3.7-pro';
   }
 
   // Pattern 2: claude-{major}-{minor}-{type}-{date} (Claude 3.x format)
@@ -183,7 +235,8 @@ export function generateGenerationConfig(parameters, enableThinking, actualModel
     temperature: parameters.temperature ?? config.defaults.temperature,
     top_p: parameters.top_p ?? config.defaults.top_p,
     top_k: parameters.top_k ?? config.defaults.top_k,
-    max_tokens: parameters.max_tokens ?? config.defaults.max_tokens,
+    max_tokens: parameters.max_tokens ?? parameters.max_completion_tokens ?? config.defaults.max_tokens,
+    max_completion_tokens: parameters.max_completion_tokens,
     thinking_budget: parameters.thinking_budget,
     response_format: parameters.response_format,
   };

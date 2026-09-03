@@ -94,6 +94,11 @@ antigravity2api/
 - **SOCKS5 自动代理**：针对 Refresh Token 刷新或请求 Google API 时出现的区域受限（`User location is not supported`），通过本地 SOCKS5 代理穿透。
 - **故障触发重启**：遇到连续网络阻断时自动触发 WARP 服务重启以轮换 IP。
 
+### 7. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
+- **账号全链路追踪**：控制台与 WebUI 日志实时高亮输出当前请求命中的账号标识 `[账号: user@gmail.com]`、`[账号: project-id]` 或 `[渠道: AIStudio-1]`，方便快速定位特定账号的额度或风控异常；
+- **参数自适应安全钳制**：自动将超上限的 `max_tokens`（如 `128000`）钳制在 Google API 允许的安全阈值 `64000`；
+- **高级 JSON Schema 深度清洗**：展开 `anyOf` / `oneOf` 联合类型，剥离 `format`、`default`、`annotations` 等 Google 禁用字段，彻底解决复杂 MCP 工具调用时的 400 校验拒绝问题。
+
 ---
 
 ## 🔧 四、 运维与常用命令
