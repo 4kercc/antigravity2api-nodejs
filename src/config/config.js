@@ -379,8 +379,11 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
 
   return {
     server: {
-      port: jsonConfig.server?.port || DEFAULT_SERVER_PORT,
-      host: jsonConfig.server?.host || DEFAULT_SERVER_HOST,
+      port: Number(process.env.PORT) || jsonConfig.server?.port || DEFAULT_SERVER_PORT,
+      host: process.env.HOST || jsonConfig.server?.host || DEFAULT_SERVER_HOST,
+      ssl: process.env.SSL !== undefined ? (process.env.SSL === 'true' || process.env.SSL === '1') : (jsonConfig.server?.ssl !== false),
+      domain: process.env.DOMAIN || jsonConfig.server?.domain || '',
+      autoRenewCert: jsonConfig.server?.autoRenewCert !== false,
       heartbeatInterval: jsonConfig.server?.heartbeatInterval || DEFAULT_HEARTBEAT_INTERVAL,
       // 内存定时清理频率：避免频繁扫描/GC 带来的性能损耗
       memoryCleanupInterval: jsonConfig.server?.memoryCleanupInterval ?? MEMORY_CLEANUP_INTERVAL
