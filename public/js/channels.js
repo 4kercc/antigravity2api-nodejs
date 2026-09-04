@@ -10,45 +10,6 @@ function generateRandomPathPrefix() {
   return `/${word}-${randStr}`;
 }
 
-// 常用接口预设定义，便于快速选择与分流
-const PRESET_ENDPOINTS = [
-  {
-    name: 'token.mx.mk (v2 接口 - 推荐)',
-    baseUrl: 'https://token.mx.mk/v2',
-    pathPrefix: '/v2',
-    models: 'gemini-2.5-pro, gemini-3.7-flash, claude-3-7-sonnet',
-    hint: '第三方高速中转 v2 接口，推荐设置本地分流路径 /v2'
-  },
-  {
-    name: 'token.mx.mk (v3 接口 - 分流独立端点)',
-    baseUrl: 'https://token.mx.mk/v3',
-    pathPrefix: '/v3',
-    models: 'gemini-2.5-pro, gemini-3.7-flash, claude-3-7-sonnet',
-    hint: '第三方独立 v3 接口，推荐设置本地分流路径 /v3'
-  },
-  {
-    name: 'token.mx.mk (v1 接口)',
-    baseUrl: 'https://token.mx.mk/v1',
-    pathPrefix: '',
-    models: 'gemini-2.5-pro, gemini-3.7-flash, claude-3-7-sonnet',
-    hint: '第三方标准兼容 v1 接口'
-  },
-  {
-    name: 'AIStudioToAPI (本地服务)',
-    baseUrl: 'http://127.0.0.1:8088/v1',
-    pathPrefix: '/aistudio',
-    models: 'gemini-2.5-pro, gemini-3.7-flash, claude-3-7-sonnet',
-    hint: '服务器或本地 Docker 启动的 AIStudioToAPI 实例'
-  },
-  {
-    name: '自定义 OpenAI 兼容接口 / OneAPI',
-    baseUrl: '',
-    pathPrefix: '',
-    models: 'gemini-2.5-pro, gemini-3.7-flash, claude-3-7-sonnet',
-    hint: '支持任意 OneAPI / NewAPI / OpenAI 协议规范端点'
-  }
-];
-
 async function loadChannels() {
   const container = document.getElementById('channelsListContainer');
   if (!container) return;
@@ -157,19 +118,10 @@ function showAddChannelModal() {
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 540px;">
       <div class="modal-title">➕ 添加外部上游渠道</div>
-      
-      <!-- 常用接口预设选择器 -->
-      <div class="form-group compact" style="margin-top: 12px; background: rgba(99, 102, 241, 0.05); padding: 10px; border-radius: 6px; border: 1px dashed rgba(99, 102, 241, 0.25);">
-        <label style="color: var(--primary, #4f46e5); font-weight: bold;">⚡ 快捷选择渠道接口预设</label>
-        <select id="chanPresetSelect" style="margin-top: 4px;">
-          ${PRESET_ENDPOINTS.map((p, idx) => `<option value="${idx}">${p.name}</option>`).join('')}
-        </select>
-        <div id="chanPresetHint" style="font-size: 0.78rem; color: #64748b; margin-top: 4px;">${PRESET_ENDPOINTS[0].hint}</div>
-      </div>
 
-      <div class="form-group compact">
+      <div class="form-group compact" style="margin-top: 12px;">
         <label>渠道名称</label>
-        <input type="text" id="chanNameInput" placeholder="例如: mx.mk v2 账号" value="token.mx.mk v2">
+        <input type="text" id="chanNameInput" placeholder="例如: mx.mk v2 账号" value="">
       </div>
 
       <div class="form-group compact">
@@ -178,7 +130,7 @@ function showAddChannelModal() {
           <button type="button" class="btn btn-xs btn-secondary" id="randomGenAddPathBtn" style="padding: 1px 6px; font-size: 0.75rem;">🎲 随机生成英文字符</button>
         </div>
         <div style="display: flex; gap: 6px; margin-top: 4px;">
-          <input type="text" id="chanPathPrefixInput" placeholder="例如: /v2, /v3, /vip, /fast" value="/v2" style="flex: 1;">
+          <input type="text" id="chanPathPrefixInput" placeholder="例如: /v2, /v3, /vip, /fast" value="" style="flex: 1;">
         </div>
         <div style="font-size: 0.78rem; color: #64748b; margin-top: 4px; line-height: 1.4;">
           💡 支持 <code>/v2</code>、<code>/v3</code> 或任意英文如 <code>/vip</code>、<code>/fast</code>、<code>/backup</code>。设置后客户端访问 <code>http://IP:8045/xxx/chat/completions</code> 直接走此专属渠道；若多个渠道填相同路径则自动负载均衡；留空则仅参与全局轮询。
@@ -194,8 +146,8 @@ function showAddChannelModal() {
 
       <div class="form-group compact">
         <label>上游接口地址 (Base URL) *</label>
-        <input type="text" id="chanBaseUrlInput" placeholder="例如: https://token.mx.mk/v2" value="https://token.mx.mk/v2">
-        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">可输入如 <code>https://token.mx.mk/v2</code>、<code>https://token.mx.mk/v3</code> 或 <code>http://127.0.0.1:8088/v1</code></div>
+        <input type="text" id="chanBaseUrlInput" placeholder="例如: https://token.mx.mk/v2" value="">
+        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">例如: <code>https://token.mx.mk/v2</code>、<code>https://token.mx.mk/v3</code> 或 <code>http://127.0.0.1:8088/v1</code></div>
       </div>
 
       <div class="form-group compact">
@@ -221,37 +173,10 @@ function showAddChannelModal() {
   `;
   document.body.appendChild(modal);
 
-  const presetSelect = modal.querySelector('#chanPresetSelect');
-  const presetHint = modal.querySelector('#chanPresetHint');
   const baseUrlInput = modal.querySelector('#chanBaseUrlInput');
   const pathPrefixInput = modal.querySelector('#chanPathPrefixInput');
   const nameInput = modal.querySelector('#chanNameInput');
   const modelsInput = modal.querySelector('#chanModelsInput');
-
-  presetSelect.onchange = () => {
-    const selected = PRESET_ENDPOINTS[presetSelect.value];
-    if (selected) {
-      presetHint.textContent = selected.hint;
-      if (selected.baseUrl) {
-        baseUrlInput.value = selected.baseUrl;
-      }
-      if (selected.pathPrefix !== undefined) {
-        pathPrefixInput.value = selected.pathPrefix;
-      }
-      if (selected.name.includes('token.mx.mk (v2')) {
-        nameInput.value = 'token.mx.mk v2';
-      } else if (selected.name.includes('token.mx.mk (v3')) {
-        nameInput.value = 'token.mx.mk v3';
-      } else if (selected.name.includes('token.mx.mk (v1')) {
-        nameInput.value = 'token.mx.mk v1';
-      } else if (selected.name.includes('AIStudioToAPI')) {
-        nameInput.value = 'AIStudio 本地端点';
-      }
-      if (selected.models) {
-        modelsInput.value = selected.models;
-      }
-    }
-  };
 
   const randomAddBtn = modal.querySelector('#randomGenAddPathBtn');
   if (randomAddBtn) {
@@ -320,17 +245,8 @@ async function showEditChannelModal(id) {
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 540px;">
       <div class="modal-title">✏️ 编辑外部上游渠道配置</div>
-      
-      <!-- 常用接口预设快速应用 -->
-      <div class="form-group compact" style="margin-top: 12px; background: rgba(99, 102, 241, 0.05); padding: 10px; border-radius: 6px; border: 1px dashed rgba(99, 102, 241, 0.25);">
-        <label style="color: var(--primary, #4f46e5); font-weight: bold;">⚡ 快速切换接口与分流路径预设</label>
-        <select id="editChanPresetSelect" style="margin-top: 4px;">
-          <option value="">-- 选择预设填入 Base URL 与分流路径 --</option>
-          ${PRESET_ENDPOINTS.map((p, idx) => `<option value="${idx}">${p.name} (路径: ${p.pathPrefix || '无'})</option>`).join('')}
-        </select>
-      </div>
 
-      <div class="form-group compact">
+      <div class="form-group compact" style="margin-top: 12px;">
         <label>渠道名称</label>
         <input type="text" id="editChanNameInput" value="${escapeHtml(chan.name || '')}">
       </div>
@@ -384,20 +300,8 @@ async function showEditChannelModal(id) {
   `;
   document.body.appendChild(modal);
 
-  const editPresetSelect = modal.querySelector('#editChanPresetSelect');
   const editBaseUrlInput = modal.querySelector('#editChanBaseUrlInput');
   const editPathPrefixInput = modal.querySelector('#editChanPathPrefixInput');
-
-  editPresetSelect.onchange = () => {
-    const val = editPresetSelect.value;
-    if (val !== '') {
-      const selected = PRESET_ENDPOINTS[Number(val)];
-      if (selected) {
-        if (selected.baseUrl) editBaseUrlInput.value = selected.baseUrl;
-        if (selected.pathPrefix !== undefined) editPathPrefixInput.value = selected.pathPrefix;
-      }
-    }
-  };
 
   const randomEditBtn = modal.querySelector('#randomGenEditPathBtn');
   if (randomEditBtn) {

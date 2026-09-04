@@ -6,50 +6,6 @@ import logger from './logger.js';
 
 const CHANNELS_FILE = 'channels.json';
 
-// 常用上游渠道接口预设库 (支持多接口与推荐分流路径)
-export const CHANNEL_PRESETS = [
-  {
-    id: 'mxmk-v2',
-    name: 'token.mx.mk (v2 接口 - 推荐)',
-    baseUrl: 'https://token.mx.mk/v2',
-    pathPrefix: '/v2',
-    type: 'openai',
-    description: '第三方高速中转 v2 接口，本地绑定 /v2 路径进行分流'
-  },
-  {
-    id: 'mxmk-v3',
-    name: 'token.mx.mk (v3 接口)',
-    baseUrl: 'https://token.mx.mk/v3',
-    pathPrefix: '/v3',
-    type: 'openai',
-    description: '第三方独立 v3 接口，本地绑定 /v3 路径进行分流'
-  },
-  {
-    id: 'mxmk-v1',
-    name: 'token.mx.mk (v1 接口)',
-    baseUrl: 'https://token.mx.mk/v1',
-    pathPrefix: '',
-    type: 'openai',
-    description: '第三方标准 v1 兼容接口'
-  },
-  {
-    id: 'aistudio-local',
-    name: 'AIStudioToAPI (本地服务)',
-    baseUrl: 'http://127.0.0.1:8088/v1',
-    pathPrefix: '/aistudio',
-    type: 'openai',
-    description: '本地 Docker / 宿主机运行的 AIStudioToAPI 实例'
-  },
-  {
-    id: 'custom-oneapi',
-    name: 'OneAPI / NewAPI / 自定义端点',
-    baseUrl: '',
-    pathPrefix: '',
-    type: 'openai',
-    description: '自定义 OpenAI 格式第三方中转端点'
-  }
-];
-
 class ChannelManager {
   constructor() {
     this.filePath = null;
