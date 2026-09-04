@@ -179,16 +179,19 @@ app.use(async (req, res, next) => {
 
 // ==================== API 路由 ====================
 
+// 支持动态分流前缀正则匹配 (如 /v2, /v3, /v4... 或 /chan-xxx，兼容 Express 5 语法)
+const DYNAMIC_CHANNEL_ROUTE_REGEX = /^\/(v[2-9]|v\d{2,}|chan-[\w-]+)/;
+
 // OpenAI 兼容 API (/v1 及动态版本 /v2, /v3... 均可处理)
 app.use('/v1', openaiRouter);
-app.use('/:version(v[2-9]|v\\d{2,}|chan-[\\w-]+)', openaiRouter);
+app.use(DYNAMIC_CHANNEL_ROUTE_REGEX, openaiRouter);
 
 // Gemini 兼容 API
 app.use('/v1beta', geminiRouter);
 
 // Claude 兼容 API（/v1/messages 及动态版本 /v2, /v3... 处理）
 app.use('/v1', claudeRouter);
-app.use('/:version(v[2-9]|v\\d{2,}|chan-[\\w-]+)', claudeRouter);
+app.use(DYNAMIC_CHANNEL_ROUTE_REGEX, claudeRouter);
 
 // Gemini CLI 兼容 API
 app.use('/cli', cliRouter);
