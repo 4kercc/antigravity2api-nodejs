@@ -529,7 +529,7 @@
                                 <select class="settings-section-select" id="settingsSectionSelect"
                                     onchange="setActiveSettingSection(this.value, true)">
                                     <option value="section-server">🖥️ 服务器</option>
-                                    <option value="section-channels">🔀 外部渠道分流 (token.mx.mk / AIStudio / OneAPI)</option>
+                                    <option value="section-channels">🔀 外部渠道分流</option>
                                     <option value="section-warp">🌐 网络与 WARP 代理</option>
                                     <option value="section-ssl">🔒 域名与证书</option>
                                     <option value="section-model">🎛️ 模型参数</option>
@@ -540,7 +540,7 @@
                                     <button type="button" class="settings-nav-item" data-target="section-server"
                                         onclick="setActiveSettingSection('section-server', true)">🖥️ 服务器</button>
                                     <button type="button" class="settings-nav-item" data-target="section-channels"
-                                        onclick="setActiveSettingSection('section-channels', true)">🔀 外部渠道分流 (token.mx.mk / AIStudio / OneAPI)</button>
+                                        onclick="setActiveSettingSection('section-channels', true)">🔀 外部渠道分流</button>
                                     <button type="button" class="settings-nav-item" data-target="section-warp"
                                         onclick="setActiveSettingSection('section-warp', true)">🌐 网络与 WARP 代理</button>
                                     <button type="button" class="settings-nav-item" data-target="section-ssl"
@@ -626,10 +626,10 @@
                                         </div>
                                     </div>
 
-                                    <!-- 外部渠道分流 (AIStudio / token.mx.mk / OneAPI) 管理 -->
+                                    <!-- 外部渠道分流管理 -->
                                     <div class="config-section" id="section-channels">
                                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                            <h4>🔀 外部上游渠道分流 (token.mx.mk / AIStudio / OneAPI)</h4>
+                                            <h4>🔀 外部渠道分流</h4>
                                             <button type="button" class="btn btn-sm btn-success" onclick="showAddChannelModal()">➕ 添加外部渠道</button>
                                         </div>
                                         <p style="font-size: 0.85rem; color: var(--text-muted, #64748b); margin-bottom: 12px;">

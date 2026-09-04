@@ -150,7 +150,7 @@ function showAddChannelModal() {
   modal.className = 'modal form-modal';
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 540px;">
-      <div class="modal-title">➕ 添加外部上游渠道 (设置本地分流路径)</div>
+      <div class="modal-title">➕ 添加外部上游渠道</div>
       
       <!-- 常用接口预设选择器 -->
       <div class="form-group compact" style="margin-top: 12px; background: rgba(99, 102, 241, 0.05); padding: 10px; border-radius: 6px; border: 1px dashed rgba(99, 102, 241, 0.25);">
