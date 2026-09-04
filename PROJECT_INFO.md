@@ -86,6 +86,7 @@ antigravity2api/
   - 若多个渠道配置相同路径，系统自动在对应渠道集合中进行轮询负载均衡；
   - 核心保留路径（`/admin`, `/v1`, `/cli`, `/sdapi`, `/health`, `/ws` 等）受系统级保护，避免路由冲突；
 - **端点智能规范化 (`normalizeUpstreamEndpoint`)**：自动适配 Base URL，智能处理末尾斜杠与 `/chat/completions` 防重，保障多端点兼容；
+- **模型自动降级自愈 (`resolveModelForChannel`)**：支持为每个外部渠道配置**默认降级模型 (Default Model)**（如 `gpt-5`）。当客户端请求不受该渠道支持的模型时（例如前端请求 `gpt-5.5`），后端自动无感降级转换为默认模型转发至上游，杜绝 404/400/500 上游报错；
 - **协议标准化与净化**：在 `externalChannelClient.js` 中自动去除 Antigravity 私有字段，兼容 OpenAI 标准 `POST /chat/completions` SSE 流式传输，并对 429/502 错误支持自动降级（Failover）。
 - **三种分流路由策略（针对未指定 pathPrefix 或 /v1 默认流量）**：
   - `fallback`（智能降级，默认）：优先原生 Token，原生耗尽或故障自动降级到外部渠道；

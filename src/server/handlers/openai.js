@@ -70,11 +70,17 @@ export const handleOpenAIRequest = async (req, res) => {
 
     // 辅助函数：通过外部渠道执行请求
     const executeViaExternalChannel = async (chan) => {
+      // 检查模型支持情况及默认模型降级
+      const { targetModel, isDowngraded } = channelManager.resolveModelForChannel(chan, model);
+      const modelLog = isDowngraded ? `${model} -> 降级为默认: ${targetModel}` : model;
       const routeInfo = res.locals.pathPrefix ? `本地路径: ${res.locals.pathPrefix}` : `模式: ${routingMode}`;
-      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理请求 (${model}) [${routeInfo}]`);
+      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理请求 (${modelLog}) [${routeInfo}]`);
       res.locals.channelName = chan.name;
       res.locals.accountInfo = `渠道:${chan.name}`;
       const { id, created } = createResponseMeta();
+
+      // 构建发送给外部渠道的 payload（若发生降级，则替换 model 为 targetModel）
+      const outgoingBody = isDowngraded ? { ...body, model: targetModel } : body;
 
       if (stream) {
         setStreamHeaders(res);
@@ -84,7 +90,7 @@ export const handleOpenAIRequest = async (req, res) => {
           let contentSent = false;
           let finishReason = 'stop';
 
-          await forwardToExternalOpenAIChannel(chan, body, true, (data) => {
+          await forwardToExternalOpenAIChannel(chan, outgoingBody, true, (data) => {
             if (data.type === 'usage') {
               usageData = data.usage;
             } else if (data.type === 'reasoning') {
@@ -120,7 +126,7 @@ export const handleOpenAIRequest = async (req, res) => {
       } else {
         // 非流式
         try {
-          const resp = await forwardToExternalOpenAIChannel(chan, body, false);
+          const resp = await forwardToExternalOpenAIChannel(chan, outgoingBody, false);
           if (resp.usage) {
             res.locals.tokenUsage = resp.usage;
             channelManager.recordUsage(chan.id, resp.usage).catch(() => {});

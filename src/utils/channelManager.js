@@ -98,6 +98,7 @@ class ChannelManager {
       return {
         ...c,
         pathPrefix: c.pathPrefix || '',
+        defaultModel: c.defaultModel || '',
         apiKeyMasked: maskedKey,
         hasKey: !!c.apiKey
       };
@@ -125,7 +126,8 @@ class ChannelManager {
       baseUrl: this._cleanBaseUrl(channelData.baseUrl),
       pathPrefix: this._cleanPathPrefix(channelData.pathPrefix),
       apiKey: channelData.apiKey || '',
-      models: Array.isArray(channelData.models) ? channelData.models : (channelData.models ? channelData.models.split(',').map(m => m.trim()) : []),
+      models: Array.isArray(channelData.models) ? channelData.models : (channelData.models ? channelData.models.split(',').map(m => m.trim()).filter(Boolean) : []),
+      defaultModel: (channelData.defaultModel || '').trim(),
       enable: channelData.enable ?? true,
       priority: Number(channelData.priority) || 10, // 默认优先级 10 (数值越小优先级越高)
       weight: Number(channelData.weight) || 1,
@@ -136,7 +138,7 @@ class ChannelManager {
 
     this.channels.push(newChannel);
     await this.save();
-    logger.info(`✓ 已添加外部上游渠道: ${newChannel.name} (BaseURL: ${newChannel.baseUrl}, 分流路径: ${newChannel.pathPrefix || '无'})`);
+    logger.info(`✓ 已添加外部上游渠道: ${newChannel.name} (BaseURL: ${newChannel.baseUrl}, 分流路径: ${newChannel.pathPrefix || '无'}, 默认降级模型: ${newChannel.defaultModel || '无'})`);
     return newChannel;
   }
 
@@ -157,8 +159,9 @@ class ChannelManager {
       pathPrefix: updates.pathPrefix !== undefined ? this._cleanPathPrefix(updates.pathPrefix) : (oldChannel.pathPrefix || ''),
       apiKey: updates.apiKey !== undefined ? updates.apiKey : oldChannel.apiKey,
       models: updates.models !== undefined 
-        ? (Array.isArray(updates.models) ? updates.models : updates.models.split(',').map(m => m.trim()))
+        ? (Array.isArray(updates.models) ? updates.models : updates.models.split(',').map(m => m.trim()).filter(Boolean))
         : oldChannel.models,
+      defaultModel: updates.defaultModel !== undefined ? (updates.defaultModel || '').trim() : (oldChannel.defaultModel || ''),
       enable: updates.enable ?? oldChannel.enable,
       priority: updates.priority !== undefined ? Number(updates.priority) : oldChannel.priority,
       weight: updates.weight !== undefined ? Number(updates.weight) : oldChannel.weight,
@@ -167,7 +170,7 @@ class ChannelManager {
 
     this.channels[index] = updatedChannel;
     await this.save();
-    logger.info(`✓ 已更新外部上游渠道: ${updatedChannel.name} (BaseURL: ${updatedChannel.baseUrl}, 分流路径: ${updatedChannel.pathPrefix || '无'})`);
+    logger.info(`✓ 已更新外部上游渠道: ${updatedChannel.name} (BaseURL: ${updatedChannel.baseUrl}, 分流路径: ${updatedChannel.pathPrefix || '无'}, 默认降级模型: ${updatedChannel.defaultModel || '无'})`);
     return updatedChannel;
   }
 
@@ -206,6 +209,42 @@ class ChannelManager {
   }
 
   /**
+   * 判断渠道是否支持指定模型
+   */
+  isModelSupported(channel, model) {
+    if (!channel) return false;
+    if (!channel.models || channel.models.length === 0) return true; // 未限制时支持全部模型
+    if (!model) return true;
+    const lowerModel = model.toLowerCase().trim();
+    return channel.models.some(m => {
+      const lm = (m || '').toLowerCase().trim();
+      return lm === '*' || lm === lowerModel;
+    });
+  }
+
+  /**
+   * 计算渠道在面对某请求模型时的实际转发目标模型：
+   * 1. 若渠道支持请求模型（或未限制模型列表），直接返回请求模型（原样透传）；
+   * 2. 若渠道不支持请求模型，但配置了 defaultModel，则自动降级为 defaultModel；
+   * 3. 若均不满足，则返回请求模型。
+   */
+  resolveModelForChannel(channel, model) {
+    if (!channel || !model) return { targetModel: model, isDowngraded: false, originalModel: model };
+    
+    // 检查是否原生支持
+    if (this.isModelSupported(channel, model)) {
+      return { targetModel: model, isDowngraded: false, originalModel: model };
+    }
+
+    // 检查是否有配置默认降级模型
+    if (channel.defaultModel) {
+      return { targetModel: channel.defaultModel, isDowngraded: true, originalModel: model };
+    }
+
+    return { targetModel: model, isDowngraded: false, originalModel: model };
+  }
+
+  /**
    * 筛选支持指定模型的可用外部渠道
    */
   async getAvailableChannelsForModel(model) {
@@ -213,8 +252,8 @@ class ChannelManager {
 
     return this.channels.filter(c => {
       if (!c.enable) return false;
-      if (!c.models || c.models.length === 0) return true; // 若未限制模型，则默认支持所有模型
-      return c.models.some(m => m === '*' || m.toLowerCase() === model.toLowerCase() || model.toLowerCase().includes(m.toLowerCase()));
+      // 满足原生支持 或 配置了默认降级模型
+      return this.isModelSupported(c, model) || !!c.defaultModel;
     }).sort((a, b) => (a.priority || 10) - (b.priority || 10));
   }
 

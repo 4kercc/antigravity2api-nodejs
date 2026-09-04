@@ -57,6 +57,7 @@ function renderChannels(channels) {
     else if (c.baseUrl?.includes('127.0.0.1') || c.baseUrl?.includes('localhost')) endpointTag = '💻 AIStudio 本地';
 
     const pathPrefix = c.pathPrefix ? (c.pathPrefix.startsWith('/') ? c.pathPrefix : '/' + c.pathPrefix) : '';
+    const defaultModelText = c.defaultModel ? c.defaultModel : '无 (保持原模型)';
     
     return `
       <div style="background: var(--bg-body, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
@@ -106,6 +107,7 @@ function renderChannels(channels) {
           <div><strong>累计调用 / Token:</strong> <span style="font-weight: bold; color: var(--primary);">${totalReq} 次</span> / <span>${totalTok.toLocaleString()} Tokens</span></div>
           <div><strong>优先级:</strong> ${c.priority || 10} (值越小越优先)</div>
           <div style="grid-column: 1 / -1;"><strong>支持模型:</strong> <span style="color: #059669;">${escapeHtml(modelsText)}</span></div>
+          <div style="grid-column: 1 / -1;"><strong>默认降级模型:</strong> <span style="color: #b45309; font-weight: bold;">${escapeHtml(defaultModelText)}</span> <span style="font-size: 0.78rem; color: #94a3b8;">（当请求不受支持的模型时自动转换为此模型转发）</span></div>
         </div>
       </div>
     `;
@@ -157,7 +159,15 @@ function showAddChannelModal() {
 
       <div class="form-group compact">
         <label>支持的模型列表 (英文逗号分隔，留空表示支持全部)</label>
-        <input type="text" id="chanModelsInput" placeholder="gemini-2.5-pro, gemini-3.7-flash, claude-3-7-sonnet" value="gemini-2.5-pro, gemini-3.7-flash, claude-3-7-sonnet">
+        <input type="text" id="chanModelsInput" placeholder="例如: gpt-4o, claude-3-7-sonnet" value="">
+      </div>
+
+      <div class="form-group compact">
+        <label>🛡️ 默认降级模型 (Default Fallback Model)</label>
+        <input type="text" id="chanDefaultModelInput" placeholder="例如: gpt-5 或 gemini-2.5-pro (可选)">
+        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">
+          当客户端请求该渠道不支持的模型（例如请求 <code>gpt-5.5</code>）时，自动降级为该默认模型（如 <code>gpt-5</code>）转发，防止上游报错。留空则直接透传。
+        </div>
       </div>
 
       <div class="form-group compact">
@@ -177,6 +187,7 @@ function showAddChannelModal() {
   const pathPrefixInput = modal.querySelector('#chanPathPrefixInput');
   const nameInput = modal.querySelector('#chanNameInput');
   const modelsInput = modal.querySelector('#chanModelsInput');
+  const defaultModelInput = modal.querySelector('#chanDefaultModelInput');
 
   const randomAddBtn = modal.querySelector('#randomGenAddPathBtn');
   if (randomAddBtn) {
@@ -193,6 +204,7 @@ function showAddChannelModal() {
     const baseUrl = modal.querySelector('#chanBaseUrlInput').value.trim();
     const apiKey = modal.querySelector('#chanApiKeyInput').value.trim();
     const modelsStr = modal.querySelector('#chanModelsInput').value.trim();
+    const defaultModel = modal.querySelector('#chanDefaultModelInput').value.trim();
     const priority = Number(modal.querySelector('#chanPriorityInput').value) || 10;
 
     if (!baseUrl) {
@@ -212,6 +224,7 @@ function showAddChannelModal() {
           baseUrl,
           apiKey,
           models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+          defaultModel,
           priority,
           enable: true
         })
@@ -288,6 +301,14 @@ async function showEditChannelModal(id) {
       </div>
 
       <div class="form-group compact">
+        <label>🛡️ 默认降级模型 (Default Fallback Model)</label>
+        <input type="text" id="editChanDefaultModelInput" value="${escapeHtml(chan.defaultModel || '')}" placeholder="例如: gpt-5 或 gemini-2.5-pro (可选)">
+        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">
+          当客户端请求该渠道不支持的模型（例如请求 <code>gpt-5.5</code>）时，自动降级为该默认模型（如 <code>gpt-5</code>）转发，防止上游报错。留空则直接透传。
+        </div>
+      </div>
+
+      <div class="form-group compact">
         <label>优先级 (默认 10，数值越小优先级越高)</label>
         <input type="number" id="editChanPriorityInput" value="${chan.priority || 10}" min="1" max="100">
       </div>
@@ -318,6 +339,7 @@ async function showEditChannelModal(id) {
     const baseUrl = modal.querySelector('#editChanBaseUrlInput').value.trim();
     const apiKey = modal.querySelector('#editChanApiKeyInput').value.trim();
     const modelsStr = modal.querySelector('#editChanModelsInput').value.trim();
+    const defaultModel = modal.querySelector('#editChanDefaultModelInput').value.trim();
     const priority = Number(modal.querySelector('#editChanPriorityInput').value) || 10;
 
     if (!baseUrl) {
@@ -331,6 +353,7 @@ async function showEditChannelModal(id) {
       type,
       baseUrl,
       models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+      defaultModel,
       priority
     };
 
@@ -338,9 +361,9 @@ async function showEditChannelModal(id) {
       updates.apiKey = apiKey;
     }
 
-    showLoading('正在保存修改...');
+    showLoading('正在保存配置...');
     try {
-      const res = await authFetch(`/admin/channels/${encodeURIComponent(id)}`, {
+      const res = await authFetch(`/admin/channels/${encodeURIComponent(chan.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
@@ -349,7 +372,7 @@ async function showEditChannelModal(id) {
       hideLoading();
 
       if (data.success) {
-        showToast(data.message, 'success');
+        showToast('渠道配置已更新！', 'success');
         modal.remove();
         loadChannels();
       } else {
@@ -357,7 +380,7 @@ async function showEditChannelModal(id) {
       }
     } catch (e) {
       hideLoading();
-      showToast('更新异常: ' + e.message, 'error');
+      showToast('请求异常: ' + e.message, 'error');
     }
   };
 }

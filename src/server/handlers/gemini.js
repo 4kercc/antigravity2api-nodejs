@@ -135,8 +135,11 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
 
     // 辅助函数：通过外部渠道执行 Gemini 格式请求
     const executeViaExternalChannel = async (chan) => {
+      // 检查模型支持情况及默认模型降级
+      const { targetModel, isDowngraded } = channelManager.resolveModelForChannel(chan, modelName);
+      const modelLog = isDowngraded ? `${modelName} -> 降级为默认: ${targetModel}` : modelName;
       const routeInfo = res.locals.pathPrefix ? `本地路径: ${res.locals.pathPrefix}` : `模式: ${routingMode}`;
-      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理 Gemini 格式请求 (${modelName}) [${routeInfo}]`);
+      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理 Gemini 格式请求 (${modelLog}) [${routeInfo}]`);
       res.locals.channelName = chan.name;
       res.locals.accountInfo = `渠道:${chan.name}`;
 
@@ -154,7 +157,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
       }
 
       const openAiPayload = {
-        model: modelName,
+        model: targetModel, // 发送给外部渠道的目标模型
         messages: openAiMessages
       };
 
