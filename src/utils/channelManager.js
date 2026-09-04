@@ -69,12 +69,24 @@ class ChannelManager {
   }
 
   /**
-   * 规范化本地分流路径 (如 "v2" -> "/v2", "/v3/" -> "/v3")
+   * 规范化本地分流路径 (支持字母、数字、下划线、短横线，如 "v2" -> "/v2", "vip" -> "/vip", "fast_chan" -> "/fast_chan")
+   * 过滤并禁止与系统保留路径冲突
    */
   _cleanPathPrefix(prefix) {
     if (!prefix || typeof prefix !== 'string') return '';
     let p = prefix.trim().replace(/^\/+/, '').replace(/\/+$/, '');
-    return p ? `/${p}` : '';
+    if (!p) return '';
+    // 仅保留合法的字符：字母、数字、下划线、中划线
+    p = p.replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!p) return '';
+    
+    // 系统保留核心路径，不可作为自定义渠道分流路径
+    const RESERVED = ['admin', 'v1', 'v1beta', 'cli', 'sdapi', 'images', 'api', 'health', 'ws'];
+    if (RESERVED.includes(p.toLowerCase())) {
+      logger.warn(`本地分流路径 [/${p}] 属于系统保留关键字，将被自动忽略`);
+      return '';
+    }
+    return `/${p}`;
   }
 
   async init() {
@@ -322,6 +334,18 @@ class ChannelManager {
       }
     }
     return Array.from(prefixes);
+  }
+
+  /**
+   * 判断某个第一段路径前缀是否属于已配置的分流路径，或 v[0-9]+ 格式
+   */
+  async isRecognizedPathPrefix(pathPrefix) {
+    if (!pathPrefix) return false;
+    const clean = this._cleanPathPrefix(pathPrefix);
+    if (!clean) return false;
+    if (/^\/v\d+$/.test(clean)) return true;
+    const all = await this.getAllConfiguredPathPrefixes();
+    return all.includes(clean);
   }
 }
 

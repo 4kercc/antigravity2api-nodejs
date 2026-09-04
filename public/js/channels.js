@@ -2,7 +2,13 @@
  * 外部上游渠道分流管理模块 (AIStudioToAPI / token.mx.mk / OneAPI)
  */
 
-let cachedChannels = [];
+// 生成随机英文字符串作为分流路径 (如 /vip-a8f2 或 /fast-k9x2)
+function generateRandomPathPrefix() {
+  const words = ['vip', 'fast', 'chan', 'pro', 'speed', 'turbo', 'relay', 'edge', 'pool', 'direct'];
+  const word = words[Math.floor(Math.random() * words.length)];
+  const randStr = Math.random().toString(36).substring(2, 6);
+  return `/${word}-${randStr}`;
+}
 
 // 常用接口预设定义，便于快速选择与分流
 const PRESET_ENDPOINTS = [
@@ -167,9 +173,16 @@ function showAddChannelModal() {
       </div>
 
       <div class="form-group compact">
-        <label>🔀 本地分流路径 (如 /v2, /v3)</label>
-        <input type="text" id="chanPathPrefixInput" placeholder="例如: /v2 (客户端请求 /v2 时走此渠道)" value="/v2">
-        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">若设置 <code>/v2</code>，客户端访问 <code>http://IP:8045/v2/chat/completions</code> 将直接分流到此渠道。留空则仅参与全局轮询/降级。</div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <label style="margin-bottom: 0;">🔀 本地分流路径 (支持任意英文/版本)</label>
+          <button type="button" class="btn btn-xs btn-secondary" id="randomGenAddPathBtn" style="padding: 1px 6px; font-size: 0.75rem;">🎲 随机生成英文字符</button>
+        </div>
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+          <input type="text" id="chanPathPrefixInput" placeholder="例如: /v2, /v3, /vip, /fast" value="/v2" style="flex: 1;">
+        </div>
+        <div style="font-size: 0.78rem; color: #64748b; margin-top: 4px; line-height: 1.4;">
+          💡 支持 <code>/v2</code>、<code>/v3</code> 或任意英文如 <code>/vip</code>、<code>/fast</code>、<code>/backup</code>。设置后客户端访问 <code>http://IP:8045/xxx/chat/completions</code> 直接走此专属渠道；若多个渠道填相同路径则自动负载均衡；留空则仅参与全局轮询。
+        </div>
       </div>
 
       <div class="form-group compact">
@@ -239,6 +252,13 @@ function showAddChannelModal() {
       }
     }
   };
+
+  const randomAddBtn = modal.querySelector('#randomGenAddPathBtn');
+  if (randomAddBtn) {
+    randomAddBtn.onclick = () => {
+      pathPrefixInput.value = generateRandomPathPrefix();
+    };
+  }
 
   modal.querySelector('#cancelAddChanBtn').onclick = () => modal.remove();
   modal.querySelector('#confirmAddChanBtn').onclick = async () => {
@@ -316,9 +336,16 @@ async function showEditChannelModal(id) {
       </div>
 
       <div class="form-group compact">
-        <label>🔀 本地分流路径 (如 /v2, /v3)</label>
-        <input type="text" id="editChanPathPrefixInput" value="${escapeHtml(chan.pathPrefix || '')}" placeholder="例如: /v2">
-        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">设置后客户端请求 <code>${escapeHtml(chan.pathPrefix || '/v2')}/chat/completions</code> 将直接路由到此渠道</div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <label style="margin-bottom: 0;">🔀 本地分流路径 (支持任意英文/版本)</label>
+          <button type="button" class="btn btn-xs btn-secondary" id="randomGenEditPathBtn" style="padding: 1px 6px; font-size: 0.75rem;">🎲 随机生成英文字符</button>
+        </div>
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+          <input type="text" id="editChanPathPrefixInput" value="${escapeHtml(chan.pathPrefix || '')}" placeholder="例如: /v2, /v3, /vip, /fast" style="flex: 1;">
+        </div>
+        <div style="font-size: 0.78rem; color: #64748b; margin-top: 4px; line-height: 1.4;">
+          💡 支持 <code>/v2</code>、<code>/v3</code> 或任意英文如 <code>/vip</code>、<code>/fast</code>、<code>/backup</code>。设置后客户端访问 <code>http://IP:8045/xxx/chat/completions</code> 直接走此专属渠道；若多个渠道填相同路径则自动负载均衡；留空则仅参与全局轮询。
+        </div>
       </div>
 
       <div class="form-group compact">
@@ -371,6 +398,13 @@ async function showEditChannelModal(id) {
       }
     }
   };
+
+  const randomEditBtn = modal.querySelector('#randomGenEditPathBtn');
+  if (randomEditBtn) {
+    randomEditBtn.onclick = () => {
+      editPathPrefixInput.value = generateRandomPathPrefix();
+    };
+  }
 
   modal.querySelector('#cancelEditChanBtn').onclick = () => modal.remove();
   modal.querySelector('#confirmEditChanBtn').onclick = async () => {

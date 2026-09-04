@@ -121,15 +121,46 @@ app.use((req, res, next) => {
 // SD API 路由
 app.use('/sdapi/v1', sdRouter);
 
-// ==================== API Key 验证中间件与动态分流拦截 ====================
+// ==================== 动态本地分流识别中间件 ====================
+// 系统保留根路径，不作为分流前缀识别
+const RESERVED_ROUTE_ROOTS = new Set([
+  'admin', 'v1', 'v1beta', 'cli', 'sdapi', 'images', 'api', 'health', 'ws', 'favicon.ico', 'robots.txt'
+]);
+
+// 识别请求是否命中自定义分流路径（如 /v2, /v3, /vip, /fast 等），并绑定目标渠道
+app.use(async (req, res, next) => {
+  const match = req.path.match(/^\/([a-zA-Z0-9_-]+)(\/.*)?$/);
+  if (match) {
+    const rootSeg = match[1];
+    const pathPrefix = `/${rootSeg}`;
+    if (!RESERVED_ROUTE_ROOTS.has(rootSeg)) {
+      const isRecognized = await channelManager.isRecognizedPathPrefix(pathPrefix);
+      if (isRecognized) {
+        res.locals.isChannelRoute = true;
+        res.locals.pathPrefix = pathPrefix;
+        const targetChannel = await channelManager.getChannelByPathPrefix(pathPrefix, req.body?.model || null);
+        if (targetChannel) {
+          res.locals.targetChannel = targetChannel;
+        } else {
+          // 若该路径没有配置或未启用可用渠道，记录未命中标记
+          res.locals.unmatchedPathPrefix = pathPrefix;
+        }
+      }
+    }
+  }
+  next();
+});
+
+// ==================== API Key 验证中间件 ====================
 app.use(async (req, res, next) => {
   let providedKey = null;
 
-  // 识别 API 请求路径（支持 /v1/*, /v2/*, /v3/*, /v1beta/*, /cli/v1/* 或自定义 /chan-* 路径）
-  const isApiPath = /^\/(v\d+|cli\/v\d+|chan-[\w-]+)\//.test(req.path) || req.path.startsWith('/v1beta/');
+  // 识别 API 请求路径（包括 /v1/*, /v1beta/*, /cli/v1/* 以及命中的所有动态渠道分流路径）
+  const isStandardApiPath = /^\/(v1|v1beta|cli\/v1)\//.test(req.path) || req.path === '/v1beta';
+  const isApiPath = isStandardApiPath || res.locals.isChannelRoute;
 
   if (isApiPath) {
-    if (req.path.startsWith('/v1beta/')) {
+    if (req.path.startsWith('/v1beta')) {
       providedKey = req.query.key || req.headers['x-goog-api-key'];
     } else {
       const authHeader = req.headers.authorization || req.headers['x-api-key'];
@@ -159,39 +190,29 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// ==================== 动态本地分流路径中间件 ====================
-// 捕获 /v2/*, /v3/*, /v4/* 或自定义 /chan-* 等本地分流路径并注入目标渠道
-app.use(async (req, res, next) => {
-  const match = req.path.match(/^\/(v[2-9]|v\d{2,}|chan-[\w-]+)(\/.*)?$/);
-  if (match) {
-    const pathPrefix = `/${match[1]}`;
-    const targetChannel = await channelManager.getChannelByPathPrefix(pathPrefix, req.body?.model || null);
-    if (targetChannel) {
-      res.locals.targetChannel = targetChannel;
-      res.locals.pathPrefix = pathPrefix;
-    } else {
-      // 若该路径没有配置或启用的渠道，记录提示
-      res.locals.unmatchedPathPrefix = pathPrefix;
-    }
-  }
-  next();
-});
-
 // ==================== API 路由 ====================
 
-// 支持动态分流前缀正则匹配 (如 /v2, /v3, /v4... 或 /chan-xxx，兼容 Express 5 语法)
-const DYNAMIC_CHANNEL_ROUTE_REGEX = /^\/(v[2-9]|v\d{2,}|chan-[\w-]+)/;
+// 动态分流路由器包装器：仅放行被标记为 isChannelRoute 的请求进入 OpenAI/Claude 分流路由
+const dynamicChannelRouterWrapper = (router) => (req, res, next) => {
+  if (res.locals.isChannelRoute) {
+    return router(req, res, next);
+  }
+  next();
+};
 
-// OpenAI 兼容 API (/v1 及动态版本 /v2, /v3... 均可处理)
+// 匹配任意单一路径根段（如 /v2, /v3, /vip, /fast 等），兼容 Express 5 正则语法
+const DYNAMIC_CHANNEL_ROUTE_REGEX = /^\/([a-zA-Z0-9_-]+)/;
+
+// OpenAI 兼容 API (/v1 标准路由及所有动态分流路由)
 app.use('/v1', openaiRouter);
-app.use(DYNAMIC_CHANNEL_ROUTE_REGEX, openaiRouter);
+app.use(DYNAMIC_CHANNEL_ROUTE_REGEX, dynamicChannelRouterWrapper(openaiRouter));
 
 // Gemini 兼容 API
 app.use('/v1beta', geminiRouter);
 
-// Claude 兼容 API（/v1/messages 及动态版本 /v2, /v3... 处理）
+// Claude 兼容 API（/v1/messages 标准路由及所有动态分流路由）
 app.use('/v1', claudeRouter);
-app.use(DYNAMIC_CHANNEL_ROUTE_REGEX, claudeRouter);
+app.use(DYNAMIC_CHANNEL_ROUTE_REGEX, dynamicChannelRouterWrapper(claudeRouter));
 
 // Gemini CLI 兼容 API
 app.use('/cli', cliRouter);
@@ -298,7 +319,7 @@ app.use((req, res, next) => {
   ];
 
   const path = req.path;
-  const isWhitelisted = whitelistPaths.some(p => path === p || path.startsWith(p + '/')) || /^\/(v\d+|cli\/v\d+|chan-[\w-]+)\//.test(path);
+  const isWhitelisted = whitelistPaths.some(p => path === p || path.startsWith(p + '/')) || res.locals.isChannelRoute || /^\/(v\d+|cli\/v\d+)\//.test(path);
 
   if (isWhitelisted) {
     return res.status(404).json({ error: 'Not Found' });

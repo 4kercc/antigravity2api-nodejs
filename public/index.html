@@ -633,7 +633,7 @@
                                             <button type="button" class="btn btn-sm btn-success" onclick="showAddChannelModal()">➕ 添加外部渠道</button>
                                         </div>
                                         <p style="font-size: 0.85rem; color: var(--text-muted, #64748b); margin-bottom: 12px;">
-                                            支持为每个外部账号配置专属的<strong>本地分流路径</strong>（如 <code>/v2</code>、<code>/v3</code> 等）。当客户端请求 <code>/v2/chat/completions</code> 时直接走绑定的专属渠道，实现接口级精确分流。
+                                            支持为每个外部账号配置专属的<strong>本地分流路径</strong>（支持任意英文/数字路径，如 <code>/v2</code>、<code>/v3</code>、<code>/vip</code>、<code>/fast</code>、<code>/backup</code> 等）。客户端调用对应路径直接走专属渠道，实现灵活精确分流。
                                         </p>
 
                                         <!-- 分流路由策略控制 -->

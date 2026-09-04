@@ -78,11 +78,13 @@ antigravity2api/
   - 在 `show2FALoginModal` 的 `navigator.credentials.get` 中统一注入 `rpId: window.location.hostname`，确保 Bitwarden 密码库准确命中当前域名并一键授权。
 
 ### 4. 外部上游渠道与本地路由路径分流 (Path-based Routing / token.mx.mk / AIStudio / OneAPI)
-- **本地路径精确分流 (Path-based Multi-Channel Routing)**：
-  - 支持为每个添加的外部账号指定专属的**本地分流路径**（例如绑定 `/v2`、`/v3`、或 `/aistudio`）；
+- **本地路径全动态分流 (Full Dynamic Path-based Routing)**：
+  - 支持为每个添加的外部账号指定专属的**本地分流路径**（不仅支持 `/v2`、`/v3` 等版本号，还支持任意自定义英文标识如 `/vip`、`/fast`、`/backup` 等）；
+  - 前端支持一键生成随机英文字符路径（如 `/vip-8f3a`），并实时提醒客户端调用端点；
   - 当客户端请求 `POST /v1/chat/completions` 时，走主程序原生 Google 账号池；
-  - 当客户端请求 `POST /v2/chat/completions` 或 `POST /v2/messages` 时，系统自动精准路由到绑定了 `/v2` 路径的第三方上游（如 `https://token.mx.mk/v2`）；
-  - 同理，请求 `/v3/*` 直接路由到绑定了 `/v3` 的上游接口（如 `https://token.mx.mk/v3`），实现多客户端、多端点维度的本地路径精准分流。
+  - 当客户端请求 `POST /v2/chat/completions` 或 `POST /vip/chat/completions`、`POST /fast/messages` 时，系统全动态精准路由到绑定了对应路径的第三方上游（如 `https://token.mx.mk/v2` 等）；
+  - 若多个渠道配置相同路径，系统自动在对应渠道集合中进行轮询负载均衡；
+  - 核心保留路径（`/admin`, `/v1`, `/cli`, `/sdapi`, `/health`, `/ws` 等）受系统级保护，避免路由冲突；
 - **端点智能规范化 (`normalizeUpstreamEndpoint`)**：自动适配 Base URL，智能处理末尾斜杠与 `/chat/completions` 防重，保障多端点兼容；
 - **协议标准化与净化**：在 `externalChannelClient.js` 中自动去除 Antigravity 私有字段，兼容 OpenAI 标准 `POST /chat/completions` SSE 流式传输，并对 429/502 错误支持自动降级（Failover）。
 - **三种分流路由策略（针对未指定 pathPrefix 或 /v1 默认流量）**：
