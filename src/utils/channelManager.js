@@ -6,6 +6,50 @@ import logger from './logger.js';
 
 const CHANNELS_FILE = 'channels.json';
 
+// 常用上游渠道接口预设库 (支持多接口与推荐分流路径)
+export const CHANNEL_PRESETS = [
+  {
+    id: 'mxmk-v2',
+    name: 'token.mx.mk (v2 接口 - 推荐)',
+    baseUrl: 'https://token.mx.mk/v2',
+    pathPrefix: '/v2',
+    type: 'openai',
+    description: '第三方高速中转 v2 接口，本地绑定 /v2 路径进行分流'
+  },
+  {
+    id: 'mxmk-v3',
+    name: 'token.mx.mk (v3 接口)',
+    baseUrl: 'https://token.mx.mk/v3',
+    pathPrefix: '/v3',
+    type: 'openai',
+    description: '第三方独立 v3 接口，本地绑定 /v3 路径进行分流'
+  },
+  {
+    id: 'mxmk-v1',
+    name: 'token.mx.mk (v1 接口)',
+    baseUrl: 'https://token.mx.mk/v1',
+    pathPrefix: '',
+    type: 'openai',
+    description: '第三方标准 v1 兼容接口'
+  },
+  {
+    id: 'aistudio-local',
+    name: 'AIStudioToAPI (本地服务)',
+    baseUrl: 'http://127.0.0.1:8088/v1',
+    pathPrefix: '/aistudio',
+    type: 'openai',
+    description: '本地 Docker / 宿主机运行的 AIStudioToAPI 实例'
+  },
+  {
+    id: 'custom-oneapi',
+    name: 'OneAPI / NewAPI / 自定义端点',
+    baseUrl: '',
+    pathPrefix: '',
+    type: 'openai',
+    description: '自定义 OpenAI 格式第三方中转端点'
+  }
+];
+
 class ChannelManager {
   constructor() {
     this.filePath = null;
@@ -13,6 +57,24 @@ class ChannelManager {
     this.initialized = false;
     this.savePromise = Promise.resolve();
     this.channelUsageIndices = new Map(); // 用于 round_robin 索引记录
+    this.pathUsageIndices = new Map(); // 用于按分流路径 round_robin 索引记录
+  }
+
+  /**
+   * 规范化 Base URL
+   */
+  _cleanBaseUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    return url.trim().replace(/\/+$/, '');
+  }
+
+  /**
+   * 规范化本地分流路径 (如 "v2" -> "/v2", "/v3/" -> "/v3")
+   */
+  _cleanPathPrefix(prefix) {
+    if (!prefix || typeof prefix !== 'string') return '';
+    let p = prefix.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+    return p ? `/${p}` : '';
   }
 
   async init() {
@@ -67,6 +129,7 @@ class ChannelManager {
       }
       return {
         ...c,
+        pathPrefix: c.pathPrefix || '',
         apiKeyMasked: maskedKey,
         hasKey: !!c.apiKey
       };
@@ -91,7 +154,8 @@ class ChannelManager {
       id: 'chan_' + crypto.randomBytes(6).toString('hex'),
       name: channelData.name || '外部渠道',
       type: channelData.type || 'openai', // 'openai' | 'gemini' | 'claude'
-      baseUrl: (channelData.baseUrl || '').replace(/\/+$/, ''), // 去除末尾斜杠
+      baseUrl: this._cleanBaseUrl(channelData.baseUrl),
+      pathPrefix: this._cleanPathPrefix(channelData.pathPrefix),
       apiKey: channelData.apiKey || '',
       models: Array.isArray(channelData.models) ? channelData.models : (channelData.models ? channelData.models.split(',').map(m => m.trim()) : []),
       enable: channelData.enable ?? true,
@@ -104,7 +168,7 @@ class ChannelManager {
 
     this.channels.push(newChannel);
     await this.save();
-    logger.info(`✓ 已添加外部上游渠道: ${newChannel.name} (${newChannel.baseUrl})`);
+    logger.info(`✓ 已添加外部上游渠道: ${newChannel.name} (BaseURL: ${newChannel.baseUrl}, 分流路径: ${newChannel.pathPrefix || '无'})`);
     return newChannel;
   }
 
@@ -121,7 +185,8 @@ class ChannelManager {
       ...oldChannel,
       name: updates.name ?? oldChannel.name,
       type: updates.type ?? oldChannel.type,
-      baseUrl: updates.baseUrl !== undefined ? (updates.baseUrl || '').replace(/\/+$/, '') : oldChannel.baseUrl,
+      baseUrl: updates.baseUrl !== undefined ? this._cleanBaseUrl(updates.baseUrl) : oldChannel.baseUrl,
+      pathPrefix: updates.pathPrefix !== undefined ? this._cleanPathPrefix(updates.pathPrefix) : (oldChannel.pathPrefix || ''),
       apiKey: updates.apiKey !== undefined ? updates.apiKey : oldChannel.apiKey,
       models: updates.models !== undefined 
         ? (Array.isArray(updates.models) ? updates.models : updates.models.split(',').map(m => m.trim()))
@@ -134,7 +199,7 @@ class ChannelManager {
 
     this.channels[index] = updatedChannel;
     await this.save();
-    logger.info(`✓ 已更新外部上游渠道: ${updatedChannel.name}`);
+    logger.info(`✓ 已更新外部上游渠道: ${updatedChannel.name} (BaseURL: ${updatedChannel.baseUrl}, 分流路径: ${updatedChannel.pathPrefix || '无'})`);
     return updatedChannel;
   }
 
@@ -197,6 +262,66 @@ class ChannelManager {
     const selected = availableChannels[idx % availableChannels.length];
     this.channelUsageIndices.set(model, (idx + 1) % availableChannels.length);
     return selected;
+  }
+
+  /**
+   * 根据本地分流路径前缀获取匹配的已启用外部渠道
+   * @param {string} pathPrefix - 本地分流前缀 (如 '/v2', '/v3')
+   * @param {string} model - 可选的模型名称
+   * @returns {Promise<Object|null>} 匹配的渠道对象
+   */
+  async getChannelByPathPrefix(pathPrefix, model = null) {
+    if (!pathPrefix) return null;
+    if (!this.initialized) await this.init();
+
+    const cleanPrefix = this._cleanPathPrefix(pathPrefix);
+    if (!cleanPrefix) return null;
+
+    // 筛选出绑定了该 pathPrefix 且启用的渠道
+    const matchedChannels = this.channels.filter(c => {
+      if (!c.enable) return false;
+      if (!c.pathPrefix) return false;
+      return this._cleanPathPrefix(c.pathPrefix) === cleanPrefix;
+    });
+
+    if (matchedChannels.length === 0) return null;
+
+    // 若指定了模型，优先进行模型匹配筛选
+    let candidateChannels = matchedChannels;
+    if (model) {
+      const modelMatched = matchedChannels.filter(c => {
+        if (!c.models || c.models.length === 0) return true;
+        return c.models.some(m => m === '*' || m.toLowerCase() === model.toLowerCase() || model.toLowerCase().includes(m.toLowerCase()));
+      });
+      if (modelMatched.length > 0) {
+        candidateChannels = modelMatched;
+      }
+    }
+
+    // 排序
+    candidateChannels.sort((a, b) => (a.priority || 10) - (b.priority || 10));
+
+    // 按 pathPrefix+model 轮询
+    const key = `${cleanPrefix}:${model || 'any'}`;
+    const idx = this.pathUsageIndices.get(key) || 0;
+    const selected = candidateChannels[idx % candidateChannels.length];
+    this.pathUsageIndices.set(key, (idx + 1) % candidateChannels.length);
+    return selected;
+  }
+
+  /**
+   * 获取所有已配置的非空本地分流路径列表 (如 ['/v2', '/v3'])
+   */
+  async getAllConfiguredPathPrefixes() {
+    if (!this.initialized) await this.init();
+    const prefixes = new Set();
+    for (const c of this.channels) {
+      if (c.pathPrefix) {
+        const clean = this._cleanPathPrefix(c.pathPrefix);
+        if (clean) prefixes.add(clean);
+      }
+    }
+    return Array.from(prefixes);
   }
 }
 

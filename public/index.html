@@ -529,7 +529,7 @@
                                 <select class="settings-section-select" id="settingsSectionSelect"
                                     onchange="setActiveSettingSection(this.value, true)">
                                     <option value="section-server">🖥️ 服务器</option>
-                                    <option value="section-channels">🔀 外部渠道分流 (AIStudio)</option>
+                                    <option value="section-channels">🔀 外部渠道分流 (token.mx.mk / AIStudio / OneAPI)</option>
                                     <option value="section-warp">🌐 网络与 WARP 代理</option>
                                     <option value="section-ssl">🔒 域名与证书</option>
                                     <option value="section-model">🎛️ 模型参数</option>
@@ -540,7 +540,7 @@
                                     <button type="button" class="settings-nav-item" data-target="section-server"
                                         onclick="setActiveSettingSection('section-server', true)">🖥️ 服务器</button>
                                     <button type="button" class="settings-nav-item" data-target="section-channels"
-                                        onclick="setActiveSettingSection('section-channels', true)">🔀 外部渠道分流 (AIStudio)</button>
+                                        onclick="setActiveSettingSection('section-channels', true)">🔀 外部渠道分流 (token.mx.mk / AIStudio / OneAPI)</button>
                                     <button type="button" class="settings-nav-item" data-target="section-warp"
                                         onclick="setActiveSettingSection('section-warp', true)">🌐 网络与 WARP 代理</button>
                                     <button type="button" class="settings-nav-item" data-target="section-ssl"
@@ -626,14 +626,14 @@
                                         </div>
                                     </div>
 
-                                    <!-- 外部渠道分流 (AIStudioToAPI / OneAPI) 管理 -->
+                                    <!-- 外部渠道分流 (AIStudio / token.mx.mk / OneAPI) 管理 -->
                                     <div class="config-section" id="section-channels">
                                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                            <h4>🔀 外部上游渠道分流 (AIStudio / OneAPI)</h4>
+                                            <h4>🔀 外部上游渠道分流 (token.mx.mk / AIStudio / OneAPI)</h4>
                                             <button type="button" class="btn btn-sm btn-success" onclick="showAddChannelModal()">➕ 添加外部渠道</button>
                                         </div>
                                         <p style="font-size: 0.85rem; color: var(--text-muted, #64748b); margin-bottom: 12px;">
-                                            用于消化因 Google 风控提示“无法验证您的身份”而无法登录客户端的账号。可将 <strong>AIStudioToAPI</strong>（如 <code>http://127.0.0.1:8088/v1</code>）或 OneAPI 等作为上游渠道无缝接入混合轮询或故障降级。
+                                            支持为每个外部账号配置专属的<strong>本地分流路径</strong>（如 <code>/v2</code>、<code>/v3</code> 等）。当客户端请求 <code>/v2/chat/completions</code> 时直接走绑定的专属渠道，实现接口级精确分流。
                                         </p>
 
                                         <!-- 分流路由策略控制 -->
@@ -643,7 +643,7 @@
                                                     <label style="margin-bottom: 4px;"><strong>🚦 上游分流路由策略</strong> <span class="help-tip" data-tooltip="智能降级：优先原生Token，故障或无账号时自动降级到外部渠道&#10;优先外部渠道：优先使用外部渠道，无匹配外部渠道时使用原生Token&#10;仅使用外部渠道：强制所有请求均由外部渠道处理">?</span></label>
                                                     <select name="CHANNEL_ROUTING_MODE" id="channelRoutingModeSelect" style="max-width: 320px;">
                                                         <option value="fallback">原生优先（智能降级 / 故障转移）</option>
-                                                        <option value="external_first">外部渠道优先（优先走 AIStudio）</option>
+                                                        <option value="external_first">外部渠道优先（优先走第三方/AIStudio）</option>
                                                         <option value="external_only">强制仅走外部渠道（忽略原生Token）</option>
                                                     </select>
                                                 </div>

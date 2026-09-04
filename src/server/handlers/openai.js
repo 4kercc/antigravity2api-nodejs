@@ -66,11 +66,12 @@ export const handleOpenAIRequest = async (req, res) => {
     };
 
     const routingMode = config.channels?.routingMode || 'fallback';
-    const externalChannel = await channelManager.getChannel(model);
+    const externalChannel = res.locals.targetChannel || await channelManager.getChannel(model);
 
     // 辅助函数：通过外部渠道执行请求
     const executeViaExternalChannel = async (chan) => {
-      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理请求 (${model}) [模式: ${routingMode}]`);
+      const routeInfo = res.locals.pathPrefix ? `本地路径: ${res.locals.pathPrefix}` : `模式: ${routingMode}`;
+      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理请求 (${model}) [${routeInfo}]`);
       res.locals.channelName = chan.name;
       res.locals.accountInfo = `渠道:${chan.name}`;
       const { id, created } = createResponseMeta();
@@ -145,6 +146,15 @@ export const handleOpenAIRequest = async (req, res) => {
         }
       }
     };
+
+    // 0. 若请求命中了指定的本地分流路径 (如 /v2, /v3 等)，直接精准走该外部渠道
+    if (res.locals.targetChannel) {
+      return await executeViaExternalChannel(res.locals.targetChannel);
+    }
+
+    if (res.locals.unmatchedPathPrefix) {
+      return res.status(404).json({ error: `未找到绑定本地分流路径 [${res.locals.unmatchedPathPrefix}] 的可用外部渠道` });
+    }
 
     // 1. 强制仅走外部渠道
     if (routingMode === 'external_only') {

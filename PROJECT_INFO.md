@@ -77,10 +77,15 @@ antigravity2api/
   - 在 `registerPasskey` 中显式指定 `rp.id: window.location.hostname` 与 `residentKey: "preferred"`；
   - 在 `show2FALoginModal` 的 `navigator.credentials.get` 中统一注入 `rpId: window.location.hostname`，确保 Bitwarden 密码库准确命中当前域名并一键授权。
 
-### 4. 外部上游渠道分流 (AIStudioToAPI / OneAPI 适配)
-- **解决 Google OAuth 客户端风控**：消化因提示“无法验证您的身份”而无法登录 Antigravity 客户端的 Google 账号。
+### 4. 外部上游渠道与本地路由路径分流 (Path-based Routing / token.mx.mk / AIStudio / OneAPI)
+- **本地路径精确分流 (Path-based Multi-Channel Routing)**：
+  - 支持为每个添加的外部账号指定专属的**本地分流路径**（例如绑定 `/v2`、`/v3`、或 `/aistudio`）；
+  - 当客户端请求 `POST /v1/chat/completions` 时，走主程序原生 Google 账号池；
+  - 当客户端请求 `POST /v2/chat/completions` 或 `POST /v2/messages` 时，系统自动精准路由到绑定了 `/v2` 路径的第三方上游（如 `https://token.mx.mk/v2`）；
+  - 同理，请求 `/v3/*` 直接路由到绑定了 `/v3` 的上游接口（如 `https://token.mx.mk/v3`），实现多客户端、多端点维度的本地路径精准分流。
+- **端点智能规范化 (`normalizeUpstreamEndpoint`)**：自动适配 Base URL，智能处理末尾斜杠与 `/chat/completions` 防重，保障多端点兼容；
 - **协议标准化与净化**：在 `externalChannelClient.js` 中自动去除 Antigravity 私有字段，兼容 OpenAI 标准 `POST /chat/completions` SSE 流式传输，并对 429/502 错误支持自动降级（Failover）。
-- **三种分流路由策略**：
+- **三种分流路由策略（针对未指定 pathPrefix 或 /v1 默认流量）**：
   - `fallback`（智能降级，默认）：优先原生 Token，原生耗尽或故障自动降级到外部渠道；
   - `external_first`（优先外部）：优先外部通道，不足时由原生补足；
   - `external_only`（仅外部渠道）：强制所有请求走外部渠道。

@@ -87,11 +87,12 @@ export const handleClaudeRequest = async (req, res, isStream) => {
     };
 
     const routingMode = config.channels?.routingMode || 'fallback';
-    const externalChannel = await channelManager.getChannel(model);
+    const externalChannel = res.locals.targetChannel || await channelManager.getChannel(model);
 
     // 辅助函数：通过外部渠道执行 Claude 请求（透传或 OpenAI 协议桥接）
     const executeViaExternalChannel = async (chan) => {
-      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理 Claude 格式请求 (${model}) [模式: ${routingMode}]`);
+      const routeInfo = res.locals.pathPrefix ? `本地路径: ${res.locals.pathPrefix}` : `模式: ${routingMode}`;
+      logger.info(`🔀 [外部渠道: ${chan.name}] 正在处理 Claude 格式请求 (${model}) [${routeInfo}]`);
       res.locals.channelName = chan.name;
       res.locals.accountInfo = `渠道:${chan.name}`;
       const msgId = `msg_${Date.now()}`;
@@ -228,6 +229,15 @@ export const handleClaudeRequest = async (req, res, isStream) => {
         }
       }
     };
+
+    // 0. 若请求命中了指定的本地分流路径 (如 /v2, /v3 等)，直接精准走该外部渠道
+    if (res.locals.targetChannel) {
+      return await executeViaExternalChannel(res.locals.targetChannel);
+    }
+
+    if (res.locals.unmatchedPathPrefix) {
+      return res.status(404).json(buildClaudeErrorPayload({ message: `未找到绑定本地分流路径 [${res.locals.unmatchedPathPrefix}] 的可用外部渠道` }, 404));
+    }
 
     // 1. 强制仅走外部渠道
     if (routingMode === 'external_only') {

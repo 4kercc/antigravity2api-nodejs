@@ -1,13 +1,32 @@
 /**
-/**
  * 外部上游渠道请求客户端
- * 支持将 OpenAI / Gemini / Claude 请求代理转发至第三方兼容服务 (如 AIStudioToAPI, OneAPI, NewAPI 等)
+ * 支持将 OpenAI / Gemini / Claude 请求代理转发至第三方兼容服务 (如 token.mx.mk, AIStudioToAPI, OneAPI, NewAPI 等)
  */
 
 import axios from 'axios';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import config from '../config/config.js';
 import logger from '../utils/logger.js';
+
+/**
+ * 智能规范化外部上游请求完整端点
+ * 支持:
+ * - https://token.mx.mk/v2 -> https://token.mx.mk/v2/chat/completions
+ * - https://token.mx.mk/v3 -> https://token.mx.mk/v3/chat/completions
+ * - http://127.0.0.1:8088/v1 -> http://127.0.0.1:8088/v1/chat/completions
+ * - 已带 /chat/completions 的完整路径自动去重
+ * @param {string} baseUrl
+ * @returns {string} 规范化后的完整 chat completions URL
+ */
+export function normalizeUpstreamEndpoint(baseUrl = '') {
+  let cleanUrl = (baseUrl || '').trim().replace(/\/+$/, '');
+  if (!cleanUrl) return '';
+
+  if (cleanUrl.endsWith('/chat/completions')) {
+    return cleanUrl;
+  }
+  return `${cleanUrl}/chat/completions`;
+}
 
 function getAxiosClient(targetUrl = '') {
   const clientConfig = {
@@ -42,7 +61,7 @@ function getAxiosClient(targetUrl = '') {
  * 转发 OpenAI 兼容请求至外部渠道（支持流式与非流式）
  */
 export async function forwardToExternalOpenAIChannel(channel, payload, stream = false, onData = null) {
-  const url = `${channel.baseUrl}/chat/completions`;
+  const url = normalizeUpstreamEndpoint(channel.baseUrl);
   const client = getAxiosClient(url);
   
   const headers = {
@@ -130,7 +149,7 @@ export async function forwardToExternalOpenAIChannel(channel, payload, stream = 
       });
 
       response.data.on('error', (err) => {
-        logger.error(`外部渠道 [${channel.name}] 流式响应异常:`, err.message);
+        logger.error(`外部渠道 [${channel.name}] (${url}) 流式响应异常:`, err.message);
         reject(err);
       });
     });
@@ -158,7 +177,7 @@ export async function testExternalChannel(channel, customModel = null) {
     ? channel.models[0] 
     : 'gemini-2.5-flash');
 
-  const url = `${channel.baseUrl}/chat/completions`;
+  const url = normalizeUpstreamEndpoint(channel.baseUrl);
   const client = getAxiosClient(url);
   const startTime = Date.now();
   const headers = { 'Content-Type': 'application/json' };

@@ -30,6 +30,7 @@ import openaiRouter from '../routes/openai.js';
 import geminiRouter from '../routes/gemini.js';
 import claudeRouter from '../routes/claude.js';
 import cliRouter from '../routes/cli.js';
+import channelManager from '../utils/channelManager.js';
 
 const publicDir = getPublicDir();
 
@@ -120,15 +121,20 @@ app.use((req, res, next) => {
 // SD API 路由
 app.use('/sdapi/v1', sdRouter);
 
-// ==================== API Key 验证中间件 ====================
-app.use((req, res, next) => {
+// ==================== API Key 验证中间件与动态分流拦截 ====================
+app.use(async (req, res, next) => {
   let providedKey = null;
 
-  if (req.path.startsWith('/v1/') || req.path.startsWith('/cli/v1/')) {
-    const authHeader = req.headers.authorization || req.headers['x-api-key'];
-    providedKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-  } else if (req.path.startsWith('/v1beta/')) {
-    providedKey = req.query.key || req.headers['x-goog-api-key'];
+  // 识别 API 请求路径（支持 /v1/*, /v2/*, /v3/*, /v1beta/*, /cli/v1/* 或自定义 /chan-* 路径）
+  const isApiPath = /^\/(v\d+|cli\/v\d+|chan-[\w-]+)\//.test(req.path) || req.path.startsWith('/v1beta/');
+
+  if (isApiPath) {
+    if (req.path.startsWith('/v1beta/')) {
+      providedKey = req.query.key || req.headers['x-goog-api-key'];
+    } else {
+      const authHeader = req.headers.authorization || req.headers['x-api-key'];
+      providedKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+    }
   } else {
     return next();
   }
@@ -153,16 +159,36 @@ app.use((req, res, next) => {
   next();
 });
 
+// ==================== 动态本地分流路径中间件 ====================
+// 捕获 /v2/*, /v3/*, /v4/* 或自定义 /chan-* 等本地分流路径并注入目标渠道
+app.use(async (req, res, next) => {
+  const match = req.path.match(/^\/(v[2-9]|v\d{2,}|chan-[\w-]+)(\/.*)?$/);
+  if (match) {
+    const pathPrefix = `/${match[1]}`;
+    const targetChannel = await channelManager.getChannelByPathPrefix(pathPrefix, req.body?.model || null);
+    if (targetChannel) {
+      res.locals.targetChannel = targetChannel;
+      res.locals.pathPrefix = pathPrefix;
+    } else {
+      // 若该路径没有配置或启用的渠道，记录提示
+      res.locals.unmatchedPathPrefix = pathPrefix;
+    }
+  }
+  next();
+});
+
 // ==================== API 路由 ====================
 
-// OpenAI 兼容 API
+// OpenAI 兼容 API (/v1 及动态版本 /v2, /v3... 均可处理)
 app.use('/v1', openaiRouter);
+app.use('/:version(v[2-9]|v\\d{2,}|chan-[\\w-]+)', openaiRouter);
 
 // Gemini 兼容 API
 app.use('/v1beta', geminiRouter);
 
-// Claude 兼容 API（/v1/messages 由 claudeRouter 处理）
+// Claude 兼容 API（/v1/messages 及动态版本 /v2, /v3... 处理）
 app.use('/v1', claudeRouter);
+app.use('/:version(v[2-9]|v\\d{2,}|chan-[\\w-]+)', claudeRouter);
 
 // Gemini CLI 兼容 API
 app.use('/cli', cliRouter);
@@ -269,7 +295,7 @@ app.use((req, res, next) => {
   ];
 
   const path = req.path;
-  const isWhitelisted = whitelistPaths.some(p => path === p || path.startsWith(p + '/'));
+  const isWhitelisted = whitelistPaths.some(p => path === p || path.startsWith(p + '/')) || /^\/(v\d+|cli\/v\d+|chan-[\w-]+)\//.test(path);
 
   if (isWhitelisted) {
     return res.status(404).json({ error: 'Not Found' });

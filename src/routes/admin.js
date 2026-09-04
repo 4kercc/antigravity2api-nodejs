@@ -1814,11 +1814,11 @@ router.get('/channels', cookieAuthMiddleware, async (req, res) => {
 // 新增外部渠道
 router.post('/channels', cookieAuthMiddleware, async (req, res) => {
   try {
-    const { name, baseUrl, apiKey, models, enable, priority, type } = req.body;
+    const { name, baseUrl, apiKey, models, enable, priority, type, pathPrefix } = req.body;
     if (!baseUrl) {
       return res.status(400).json({ success: false, message: '渠道基础 URL (Base URL) 必填' });
     }
-    const newChan = await channelManager.addChannel({ name, baseUrl, apiKey, models, enable, priority, type });
+    const newChan = await channelManager.addChannel({ name, baseUrl, apiKey, models, enable, priority, type, pathPrefix });
     res.json({ success: true, message: `外部渠道 [${newChan.name}] 添加成功！`, data: newChan });
   } catch (error) {
     logger.error('添加外部渠道失败:', error.message);
