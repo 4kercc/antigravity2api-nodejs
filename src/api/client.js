@@ -94,6 +94,7 @@ const DEFAULT_MODELS = Object.freeze([
   'claude-sonnet-4-6',
   'claude-sonnet-4-6-thinking',
   'gemini-3.8-flash',
+  'gemini-3.8-flash-cyber',
   'gemini-3.8-flash-thinking',
   'gemini-3.8-pro',
   'gemini-3.7-flash',

@@ -41,6 +41,10 @@ router.use(checkGeminiCliEnabled);
  */
 function getGeminiCliModels() {
   const baseModels = [
+    'gemini-3.8-flash',
+    'gemini-3.8-flash-cyber',
+    'gemini-3.8-flash-thinking',
+    'gemini-3.8-pro',
     'gemini-3.7-flash',
     'gemini-3.7-flash-tiered',
     'gemini-3.7-flash-high',
