@@ -10,6 +10,216 @@ class WarpManager {
     this.lastRestartTime = 0;
     this.cooldownMs = 60 * 1000; // 60秒冷却时间，防止频繁重启
     this.isRestarting = false;
+
+    // 代理健康检查（定期探测 40000 端口连通性）
+    this.healthTimer = null;
+    this.healthFailureCount = 0;
+
+    // 后台任务网络失败上报（滑动窗口计数，快速自愈）
+    this.failureWindowStart = 0;
+    this.failureWindowCount = 0;
+  }
+
+  /**
+   * 当前是否通过 WARP 的本地 SOCKS5 代理出口（127.0.0.1:40000）
+   * 只有这种配置下，WARP 自愈动作才有意义
+   * @returns {boolean}
+   */
+  isWarpProxyConfigured() {
+    const proxy = typeof config.proxy === 'string' ? config.proxy.trim().toLowerCase() : '';
+    return proxy === 'socks5://127.0.0.1:40000'
+      || proxy === 'socks5h://127.0.0.1:40000'
+      || proxy === 'socks5://localhost:40000';
+  }
+
+  /**
+   * 自动重启开关（后台「网络异常自动重启换 IP」开关，默认开启）
+   * @returns {boolean}
+   */
+  isAutoRestartEnabled() {
+    return config.warp?.autoRestart !== false;
+  }
+
+  /**
+   * 等待端口进入监听状态
+   * @param {number} port
+   * @param {number} timeoutMs
+   * @param {number} intervalMs
+   * @returns {Promise<boolean>}
+   */
+  async waitForPort(port = 40000, timeoutMs = 15000, intervalMs = 1000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await this.checkPort(port, '127.0.0.1')) {
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    return false;
+  }
+
+  /**
+   * 给 Promise 加超时保护，超时返回兜底值（避免启动流程被卡死）
+   * @param {Promise} promise
+   * @param {number} timeoutMs
+   * @param {*} fallback
+   * @returns {Promise<*>}
+   */
+  _withTimeout(promise, timeoutMs, fallback) {
+    return Promise.race([
+      Promise.resolve(promise).catch(() => fallback),
+      new Promise(resolve => setTimeout(() => resolve(fallback), timeoutMs))
+    ]);
+  }
+
+  /**
+   * 服务启动自愈：面板/服务每次重启后，主动执行一次 WARP 重启换 IP。
+   * 目的：避免服务启动时 WARP 已掉线，导致 Token 刷新 / 积分同步 / 额度同步 / 遥测请求全部失败，
+   *      必须人工打开面板点“重启”才能恢复。
+   * 可用 config.json 中 warp.restartOnStartup = false 关闭。
+   * @returns {Promise<boolean>} 启动自愈后代理端口是否就绪
+   */
+  async restartOnStartup() {
+    if (!this.isWarpProxyConfigured()) {
+      log.info('[WARP] 未配置 WARP SOCKS5 代理 (127.0.0.1:40000)，跳过启动自愈');
+      return false;
+    }
+    if (!this.isAutoRestartEnabled()) {
+      log.info('[WARP] 网络异常自动重启已关闭，跳过启动自愈');
+      return false;
+    }
+    if (config.warp?.restartOnStartup === false) {
+      log.info('[WARP] 启动自愈已在配置中关闭 (warp.restartOnStartup = false)');
+      return false;
+    }
+
+    log.info('[WARP] 服务启动自愈：主动执行一次 WARP 重启换 IP ...');
+    try {
+      const restarted = await this._withTimeout(
+        this.restartWarp('服务启动自愈（面板重启后主动换 IP）'),
+        20000,
+        false
+      );
+      if (!restarted) {
+        log.warn('[WARP] 启动自愈未完成或超时，服务继续启动（健康检查任务将持续监控）');
+        return false;
+      }
+
+      const recovered = await this.waitForPort(40000, 10000);
+      if (recovered) {
+        log.info('[WARP] ✓ 启动自愈完成，SOCKS5 代理 (40000) 已就绪');
+      } else {
+        log.warn('[WARP] ⚠ 启动自愈后 SOCKS5 代理 (40000) 尚未就绪，健康检查任务将持续监控');
+      }
+      return recovered;
+    } catch (error) {
+      log.warn(`[WARP] 启动自愈异常: ${error.message}（服务继续启动）`);
+      return false;
+    }
+  }
+
+  /**
+   * 启动代理健康检查定时任务
+   * 定期探测 40000 端口，连续 N 次不可达时自动重启 WARP 换 IP
+   * @returns {NodeJS.Timeout|null}
+   */
+  startHealthMonitor() {
+    if (this.healthTimer) return this.healthTimer;
+
+    if (!this.isWarpProxyConfigured()) {
+      log.info('[WARP] 未配置 WARP SOCKS5 代理，跳过代理健康检查任务');
+      return null;
+    }
+    if (!this.isAutoRestartEnabled()) {
+      log.info('[WARP] 网络异常自动重启已关闭，跳过代理健康检查任务');
+      return null;
+    }
+
+    const intervalMs = Number(config.warp?.healthCheckIntervalMs) > 0
+      ? Number(config.warp.healthCheckIntervalMs)
+      : 2 * 60 * 1000;
+    const failureThreshold = Number(config.warp?.healthCheckFailures) > 0
+      ? Number(config.warp.healthCheckFailures)
+      : 3;
+
+    this.healthFailureCount = 0;
+    this.healthTimer = setInterval(() => {
+      this._runHealthCheck(failureThreshold).catch(() => {});
+    }, intervalMs);
+    if (typeof this.healthTimer.unref === 'function') this.healthTimer.unref();
+
+    log.info(`[WARP] 代理健康检查已启动（间隔 ${Math.round(intervalMs / 60000)} 分钟，连续 ${failureThreshold} 次不可达自动重启）`);
+    return this.healthTimer;
+  }
+
+  /**
+   * 停止代理健康检查定时任务
+   */
+  stopHealthMonitor() {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+      log.info('[WARP] 代理健康检查已停止');
+    }
+  }
+
+  /**
+   * 执行一次健康检查
+   * @param {number} failureThreshold - 连续失败阈值
+   * @private
+   */
+  async _runHealthCheck(failureThreshold) {
+    if (this.isRestarting) return;
+
+    const portOpen = await this.checkPort(40000, '127.0.0.1');
+    if (portOpen) {
+      if (this.healthFailureCount > 0) {
+        log.info(`[WARP] 代理端口 40000 已恢复可达（此前连续失败 ${this.healthFailureCount} 次）`);
+      }
+      this.healthFailureCount = 0;
+      return;
+    }
+
+    this.healthFailureCount++;
+    log.warn(`[WARP] 健康检查: 代理端口 40000 不可达（连续 ${this.healthFailureCount}/${failureThreshold} 次）`);
+
+    if (this.healthFailureCount >= failureThreshold) {
+      this.healthFailureCount = 0;
+      const restarted = await this.restartWarp(`代理端口 40000 连续 ${failureThreshold} 次不可达，自动重启换 IP`);
+      if (restarted) {
+        const recovered = await this.waitForPort(40000, 20000);
+        log.info(recovered
+          ? '[WARP] ✓ 健康检查自愈完成，代理端口已恢复监听'
+          : '[WARP] ⚠ 健康检查自愈后代理端口仍未恢复，等待下一轮检查');
+      }
+    }
+  }
+
+  /**
+   * 后台任务上报一次代理/网络请求失败（用于快速触发自愈）
+   * 在滑动窗口内累计达到阈值即触发一次 WARP 重启（受冷却与并发保护，不会造成重启风暴）
+   * @param {string} reason - 失败原因（用于日志）
+   */
+  reportNetworkFailure(reason = '后台请求失败') {
+    if (!this.isWarpProxyConfigured() || !this.isAutoRestartEnabled()) return;
+
+    const now = Date.now();
+    const windowMs = 5 * 60 * 1000;
+    if (!this.failureWindowStart || now - this.failureWindowStart > windowMs) {
+      this.failureWindowStart = now;
+      this.failureWindowCount = 0;
+    }
+    this.failureWindowCount++;
+
+    const threshold = Number(config.warp?.failureReportThreshold) > 0
+      ? Number(config.warp.failureReportThreshold)
+      : 5;
+
+    if (this.failureWindowCount >= threshold) {
+      this.failureWindowCount = 0;
+      this.failureWindowStart = now;
+      this.restartWarp(`执行窗口内连续 ${threshold} 次代理请求失败（${reason}）`).catch(() => {});
+    }
   }
 
   /**
@@ -160,7 +370,8 @@ class WarpManager {
     const restartCmd = 'warp restart 2>/dev/null || (warp-cli --accept-tos disconnect 2>/dev/null || warp-cli disconnect 2>/dev/null; sleep 1; warp-cli --accept-tos connect 2>/dev/null || warp-cli connect 2>/dev/null) || systemctl restart warp-svc 2>/dev/null || true';
 
     return new Promise((resolve) => {
-      exec(restartCmd, { shell: '/bin/bash' }, (error, stdout, stderr) => {
+      // timeout: 防止 warp/systemctl 命令挂起导致调用方（含服务启动流程）被卡死
+      exec(restartCmd, { shell: '/bin/bash', timeout: 30000 }, (error, stdout, stderr) => {
         this.isRestarting = false;
         if (error) {
           log.error(`[WARP] 重启失败: ${error.message}`);

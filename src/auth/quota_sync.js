@@ -12,6 +12,7 @@ import tokenManager from './token_manager.js';
 import quotaManager from './quota_manager.js';
 import { getModelsWithQuotas } from '../api/client.js';
 import { getConfigJson } from '../config/config.js';
+import warpManager from '../utils/warpManager.js';
 import { log } from '../utils/logger.js';
 
 const DEFAULT_SYNC_INTERVAL_MS = 10 * 60 * 1000; // 默认每 10 分钟同步一次
@@ -63,6 +64,12 @@ export async function syncAllTokenQuotas() {
     }
 
     log.info(`[QuotaSync] 额度自动同步完成: 成功 ${synced} 个${failed > 0 ? `, 失败 ${failed} 个` : ''}`);
+
+    // 全部账号同步失败通常意味着代理/网络中断（而非单账号问题），上报给 WARP 自愈检测器
+    if (synced === 0 && failed > 0) {
+      warpManager.reportNetworkFailure(`额度同步全部失败 (${failed} 个账号)`);
+    }
+
     return { total: tokens.length, synced, failed };
   } finally {
     syncing = false;

@@ -6,6 +6,28 @@ import requesterManager from '../utils/requesterManager.js';
 import warpManager from '../utils/warpManager.js';
 
 /**
+ * 网络/代理层异常特征（统一小写做包含匹配）
+ * 说明：socks-proxy-agent 抛出的文本形如 "Socks5 proxy rejected connection - ConnectionRefused"，
+ *      与 Node 原生 "ECONNREFUSED" 的写法/大小写不同，仅用大写关键字会漏判，导致代理掉线时无法自动自愈。
+ */
+export const NETWORK_ERROR_SIGNATURES = [
+  'not supported',
+  'protocol mismatch',
+  'econnrefused',
+  'connectionrefused',
+  'connection refused',
+  'proxy rejected',
+  'etimedout',
+  'econnreset',
+  'connection reset',
+  'socket hang up',
+  'network error',
+  'failed to fetch',
+  'getaddrinfo',
+  'timeout'
+];
+
+/**
  * Token 生命周期管理类
  * 负责 Token 的过期检查和刷新
  */
@@ -123,16 +145,15 @@ class TokenLifecycleManager {
         throw new TokenError(message, tokenId, 400);
       }
 
-      // 如果遇到网络连接阻断、IP受限、地区拒绝或 protocol mismatch 等错误，自动触发 WARP 重启换 IP
-      const isNetworkOrGeoError = 
-        statusCode === 403 || 
-        message.includes('not supported') ||
-        message.includes('protocol mismatch') ||
-        message.includes('ECONNREFUSED') ||
-        message.includes('ETIMEDOUT') ||
-        message.includes('timeout');
+      // 如果遇到网络连接阻断、IP受限、地区拒绝、代理不可达等错误，自动触发 WARP 重启换 IP
+      const normalizedMessage = String(message || '').toLowerCase();
+      const isNetworkOrGeoError =
+        statusCode === 403 ||
+        (statusCode >= 500 && statusCode <= 504) ||
+        NETWORK_ERROR_SIGNATURES.some(signature => normalizedMessage.includes(signature));
 
       if (isNetworkOrGeoError) {
+        log.warn(`[WARP] Token [${tokenId}] 刷新遭遇网络/代理异常，触发 WARP 重启自愈: ${message}`);
         warpManager.restartWarp(`Token [${tokenId}] 刷新网络异常 (${message})`).catch(() => {});
       }
 

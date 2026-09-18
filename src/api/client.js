@@ -43,6 +43,17 @@ function getTokenKey(token) {
   return token.access_token;
 }
 
+/**
+ * 上报一次后台代理请求失败，用于触发 WARP 快速自愈
+ * （使用动态导入避免模块加载顺序耦合）
+ * @param {string} reason
+ */
+function reportWarpNetworkFailure(reason) {
+  import('../utils/warpManager.js')
+    .then(m => m.default.reportNetworkFailure(reason))
+    .catch(() => {});
+}
+
 function startTokenTimer(token) {
   const key = getTokenKey(token);
   const now = Date.now();
@@ -51,15 +62,25 @@ function startTokenTimer(token) {
     tokenTimers.get(key).lastUsed = now;
     return;
   }
-  sendClientRegister(token).catch(err => logger.warn('定时调用ClientRegister失败:', err.message));
-  sendClientFeature(token).catch(err => logger.warn('定时调用ClientFeature失败:', err.message));
-  sendFrontEnd(token).catch(err => logger.warn('定时调用FrontEnd失败:', err.message));
 
-  const intervalId = setInterval(() => {
-    sendClientRegister(token).catch(err => logger.warn('定时调用ClientRegister失败:', err.message));
-    sendClientFeature(token).catch(err => logger.warn('定时调用ClientFeature失败:', err.message));
-    sendFrontEnd(token).catch(err => logger.warn('定时调用FrontEnd失败:', err.message));
-  }, BACKEND_CALL_INTERVAL);
+  const runBackendCalls = () => {
+    sendClientRegister(token).catch(err => {
+      logger.warn('定时调用ClientRegister失败:', err.message);
+      reportWarpNetworkFailure('定时遥测 ClientRegister 失败');
+    });
+    sendClientFeature(token).catch(err => {
+      logger.warn('定时调用ClientFeature失败:', err.message);
+      reportWarpNetworkFailure('定时遥测 ClientFeature 失败');
+    });
+    sendFrontEnd(token).catch(err => {
+      logger.warn('定时调用FrontEnd失败:', err.message);
+      reportWarpNetworkFailure('定时遥测 FrontEnd 失败');
+    });
+  };
+
+  runBackendCalls();
+
+  const intervalId = setInterval(runBackendCalls, BACKEND_CALL_INTERVAL);
 
   tokenTimers.set(key, { lastUsed: now, intervalId });
 }

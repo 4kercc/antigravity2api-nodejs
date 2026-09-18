@@ -455,6 +455,26 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
       routingMode: jsonConfig.channels?.routingMode || 'fallback' // 'fallback' (原生优先) | 'external_first' (外部优先) | 'external_only' (强制仅外部)
     },
 
+    // ==================== Cloudflare WARP / 代理自愈配置 ====================
+    warp: {
+      // 网络异常时自动重启 WARP 换 IP（后台 UI 开关，默认开启）
+      autoRestart: jsonConfig.warp?.autoRestart !== false,
+      // 服务/面板每次重启后，主动执行一次 WARP 重启实现启动自愈（默认开启）
+      restartOnStartup: jsonConfig.warp?.restartOnStartup !== false,
+      // 代理健康检查间隔（毫秒，默认 2 分钟）
+      healthCheckIntervalMs: Number(jsonConfig.warp?.healthCheckIntervalMs) > 0
+        ? Number(jsonConfig.warp.healthCheckIntervalMs)
+        : 2 * 60 * 1000,
+      // 健康检查连续失败多少次后自动重启 WARP（默认 3 次）
+      healthCheckFailures: Number(jsonConfig.warp?.healthCheckFailures) > 0
+        ? Number(jsonConfig.warp.healthCheckFailures)
+        : 3,
+      // 后台任务在滑动窗口内累计多少次代理请求失败后触发重启（默认 5 次）
+      failureReportThreshold: Number(jsonConfig.warp?.failureReportThreshold) > 0
+        ? Number(jsonConfig.warp.failureReportThreshold)
+        : 5
+    },
+
     // ==================== Gemini CLI 配置 ====================
     geminicli: {
       // 是否启用 Gemini CLI 反代功能

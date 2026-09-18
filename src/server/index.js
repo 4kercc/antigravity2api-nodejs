@@ -21,6 +21,7 @@ import { errorHandler } from '../utils/errors.js';
 import { getChunkPoolSize, clearChunkPool } from './stream.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
+import warpManager from '../utils/warpManager.js';
 import { startQuotaSyncTimer } from '../auth/quota_sync.js';
 import { certsExist, getCertPaths, generateSelfSignedCert, getCertificateInfo, issueAcmeCert } from '../utils/sslManager.js';
 
@@ -413,6 +414,11 @@ setInterval(async () => {
   }
 }, certCheckInterval);
 
+// ==================== WARP 启动自愈（面板/服务每次重启后主动换 IP） ====================
+// 修复场景：服务重启时 WARP 已掉线，导致 Token 刷新/积分同步/额度同步/遥测全部失败，
+//          必须人工打开面板点“重启”才能恢复。这里在开始对外服务前先自愈一次。
+await warpManager.restartOnStartup();
+
 // 导出 server 实例供管理路由重载 SSL 使用
 export { server };
 
@@ -431,6 +437,9 @@ server.listen(config.server.port, config.server.host, () => {
     logMaxMemory: config.log?.maxMemory
   });
   logger.info('WebSocket 日志服务已启动: /ws/logs');
+
+  // 启动 WARP 代理健康检查（定期探测 40000 端口，连续不可达自动重启换 IP）
+  warpManager.startHealthMonitor();
 });
 
 server.on('error', (error) => {
