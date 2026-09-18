@@ -102,7 +102,18 @@ antigravity2api/
 - **SOCKS5 自动代理**：针对 Refresh Token 刷新或请求 Google API 时出现的区域受限（`User location is not supported`），通过本地 SOCKS5 代理穿透。
 - **故障触发重启**：遇到连续网络阻断时自动触发 WARP 服务重启以轮换 IP。
 
-### 7. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
+### 7. 轮询与性能：额度耗尽切换阈值修复（make quota threshold effective）
+- **问题背景**：管理后台「设置 → 轮询与性能 → 额度耗尽切换阈值」形同虚设，账号会被一直用到 0 额度。
+- **三层根因与修复**：
+  1. **阈值配置被静默丢弃**：`PUT /admin/rotation` 只接收 `strategy` / `requestCount`，`minQuotaThreshold` 未落盘（`src/routes/admin.js`）；现已支持接收、0~1 范围校验、百分比写法兼容（60 → 0.6）并持久化到 `config.json`；
+  2. **额度数据从不自动刷新（最致命）**：三个 handler 中定义的 `refreshQuota` 虽然传入了 `with429Retry`，但从未被调用，`quotaManager` 缓存长期为空，而空数据一律被判为「有额度」，阈值过滤完全失效。现在：① `with429Retry` 在**请求成功路径**与**429 长冷却（额度耗尽）时**自动刷新额度，并按 tokenId 节流（常规 3 分钟 / 强制 30 秒）；② 新增 `src/auth/quota_sync.js` **定时同步任务**（默认每 10 分钟，启动后 30 秒预热），批量刷新所有启用账号额度，可通过 `config.json` 的 `quota.syncIntervalMs` 调整或置 0 关闭；
+  3. **策略按下标追踪账号导致错位**：`QuotaExhaustedStrategy` 原用数组下标在动态过滤后的候选列表上取模，账号被过滤/恢复时索引错位；现改为按 `tokenId` 追踪当前账号，并记录上一次候选顺序，切换时从当前账号之后循环查找，保证稳定顺延。
+- **配套增强**：
+  - `hasQuotaForModel` 增加数据陈旧上限（超过 60 分钟视为不可信），避免陈旧数据永久排除或永久放行某账号；
+  - 新增**全账号低于阈值时的兜底降级**：`_pickLeastDepletedToken` 会选择「剩余额度最高且不在冷却中」的账号继续服务，避免阈值生效后出现整体不可用；
+  - `TokenManager` 新增 `ensureInitialized()` 供定时任务安全访问 token 池；`getRotationConfig()` 返回中补充 `minQuotaThreshold`。
+
+### 8. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
 - **账号全链路追踪**：控制台与 WebUI 日志实时高亮输出当前请求命中的账号标识 `[账号: user@gmail.com]`、`[账号: project-id]` 或 `[渠道: AIStudio-1]`，方便快速定位特定账号的额度或风控异常；
 - **参数自适应安全钳制**：自动将超上限的 `max_tokens`（如 `128000`）钳制在 Google API 允许的安全阈值 `64000`；
 - **高级 JSON Schema 深度清洗**：展开 `anyOf` / `oneOf` 联合类型，剥离 `format`、`default`、`annotations` 等 Google 禁用字段，彻底解决复杂 MCP 工具调用时的 400 校验拒绝问题。
