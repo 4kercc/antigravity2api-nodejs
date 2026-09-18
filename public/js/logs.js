@@ -100,6 +100,7 @@ async function clearLogs() {
             showToast('日志已清空', 'success');
             logsState.logs = [];
             logsState.total = 0;
+            logsState.currentPage = 1; // 清空后回到第 1 页，避免残留越界页码
             logsState.stats = { total: 0, info: 0, warn: 0, error: 0, request: 0, debug: 0 };
             renderLogs();
             renderLogStats();
@@ -162,6 +163,11 @@ function renderLogPagination() {
     if (!bar) return;
 
     const totalPages = getLogTotalPages();
+
+    // 防御：页码越界时自动夹紧，避免出现「第 53 / 1 页」这类异常显示
+    if (logsState.currentPage > totalPages) logsState.currentPage = totalPages;
+    if (logsState.currentPage < 1) logsState.currentPage = 1;
+
     const page = logsState.currentPage;
     const total = logsState.total;
     const start = total === 0 ? 0 : (page - 1) * logsState.pageSize + 1;
