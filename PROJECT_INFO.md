@@ -113,7 +113,19 @@ antigravity2api/
   - 新增**全账号低于阈值时的兜底降级**：`_pickLeastDepletedToken` 会选择「剩余额度最高且不在冷却中」的账号继续服务，避免阈值生效后出现整体不可用；
   - `TokenManager` 新增 `ensureInitialized()` 供定时任务安全访问 token 池；`getRotationConfig()` 返回中补充 `minQuotaThreshold`。
 
-### 8. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
+### 8. WARP 代理三层自愈体系（startup restart + port health monitor + widened error detection）
+- **问题背景**：WARP SOCKS5 代理（127.0.0.1:40000）掉线后，后端所有依赖代理的请求（Token 刷新 / 积分同步 / 额度同步 / 定时遥测）全部失败，而系统没有任何机制能自动发现——必须人工打开面板点“重启”才能恢复。
+- **三层自愈设计**：
+  1. **启动自愈（面板/服务每次重启后主动换 IP）**：`server/index.js` 在 `server.listen()` **之前** `await warpManager.restartOnStartup()`，先执行一次 `warp restart` 并等待 40000 端口就绪，再对外提供服务。可用 `config.json` 的 `warp.restartOnStartup = false` 关闭；
+  2. **定期健康检查**：服务启动后由 `warpManager.startHealthMonitor()` 每 2 分钟探测一次 40000 端口，**连续 3 次不可达**即自动重启 WARP 并等待端口恢复（间隔与阈值可通过 `warp.healthCheckIntervalMs` / `warp.healthCheckFailures` 配置）；
+  3. **后台任务失败快速上报**：`warpManager.reportNetworkFailure()` 提供滑动窗口计数（5 分钟内累计 5 次即触发重启，默认阈值 `warp.failureReportThreshold`），已接入**额度同步全部失败**与**定时遥测（ClientRegister/ClientFeature/FrontEnd）失败**两条链路，比端口轮询更快发现代理中断。
+- **错误识别缺陷修复**：原先 Token 刷新路径只匹配大写 `ECONNREFUSED`，而 `socks-proxy-agent` 实际抛出的文本是 `Socks5 proxy rejected connection - ConnectionRefused`（大小写不同）导致漏判。现已统一转小写匹配，并补充 `proxy rejected`、`connection refused`、`econnreset`、`socket hang up`、`failed to fetch`、`getaddrinfo` 等特征，同时把 `500~504` 纳入网络异常判定。
+- **配套加固**：
+  - `restartWarp` 的 shell 执行新增 30 秒超时，避免命令挂起卡死服务启动流程；
+  - 补齐 `config.js` 中缺失的 `warp` 配置段（此前 `warp.autoRestart` 未参与配置构建，进程重启后该开关会失效）；
+  - 所有自愈动作复用既有的 60 秒冷却与 `isRestarting` 并发保护，不会产生重启风暴。
+
+### 9. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
 - **账号全链路追踪**：控制台与 WebUI 日志实时高亮输出当前请求命中的账号标识 `[账号: user@gmail.com]`、`[账号: project-id]` 或 `[渠道: AIStudio-1]`，方便快速定位特定账号的额度或风控异常；
 - **参数自适应安全钳制**：自动将超上限的 `max_tokens`（如 `128000`）钳制在 Google API 允许的安全阈值 `64000`；
 - **高级 JSON Schema 深度清洗**：展开 `anyOf` / `oneOf` 联合类型，剥离 `format`、`default`、`annotations` 等 Google 禁用字段，彻底解决复杂 MCP 工具调用时的 400 校验拒绝问题。
