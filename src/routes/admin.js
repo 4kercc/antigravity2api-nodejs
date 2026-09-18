@@ -1065,7 +1065,7 @@ router.get('/rotation', cookieAuthMiddleware, (req, res) => {
 // 更新轮询策略配置
 router.put('/rotation', cookieAuthMiddleware, (req, res) => {
   try {
-    const { strategy, requestCount } = req.body;
+    const { strategy, requestCount, minQuotaThreshold } = req.body;
 
     // 验证策略值
     const validStrategies = ['round_robin', 'quota_exhausted', 'request_count'];
@@ -1076,6 +1076,22 @@ router.put('/rotation', cookieAuthMiddleware, (req, res) => {
       });
     }
 
+    // 额度耗尽切换阈值校验与归一化（兼容 0~1 小数与 0~100 百分比两种写法）
+    let normalizedThreshold;
+    if (minQuotaThreshold !== undefined && minQuotaThreshold !== null && minQuotaThreshold !== '') {
+      let num = Number(minQuotaThreshold);
+      if (Number.isFinite(num) && num > 1 && num <= 100) {
+        num = num / 100;
+      }
+      if (!Number.isFinite(num) || num < 0 || num > 1) {
+        return res.status(400).json({
+          success: false,
+          message: '额度阈值必须为 0~1 之间的小数（或 0~100 的百分比）'
+        });
+      }
+      normalizedThreshold = num;
+    }
+
     // 更新内存中的配置
     tokenManager.updateRotationConfig(strategy, requestCount);
 
@@ -1084,13 +1100,28 @@ router.put('/rotation', cookieAuthMiddleware, (req, res) => {
     if (!currentConfig.rotation) currentConfig.rotation = {};
     if (strategy) currentConfig.rotation.strategy = strategy;
     if (requestCount) currentConfig.rotation.requestCount = requestCount;
+    if (normalizedThreshold !== undefined) {
+      currentConfig.rotation.minQuotaThreshold = normalizedThreshold;
+    }
     saveConfigJson(currentConfig);
 
     // 重载配置到内存
     reloadConfig();
 
+    if (normalizedThreshold !== undefined) {
+      logger.info(`额度耗尽切换阈值已更新: ${(normalizedThreshold * 100).toFixed(0)}%`);
+    }
     logger.info(`轮询策略已更新: ${strategy || '未变'}, 请求次数: ${requestCount || '未变'}`);
-    res.json({ success: true, message: '轮询策略已更新', data: tokenManager.getRotationConfig() });
+    res.json({
+      success: true,
+      message: '轮询策略已更新',
+      data: {
+        ...tokenManager.getRotationConfig(),
+        minQuotaThreshold: Number.isFinite(config.rotation?.minQuotaThreshold)
+          ? config.rotation.minQuotaThreshold
+          : 0.20
+      }
+    });
   } catch (error) {
     logger.error('更新轮询配置失败:', error.message);
     res.status(500).json({ success: false, message: error.message });

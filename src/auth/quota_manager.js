@@ -16,6 +16,10 @@ const GROUP_COST_PERCENT = {
   other: 0.6667
 };
 
+// 额度数据最大可信时长：超过该时长视为不可信，不再参与阈值判断
+// （由额度自动同步任务定时刷新，正常运行时数据不会超过该时长）
+const QUOTA_DATA_MAX_AGE_MS = 60 * 60 * 1000;
+
 class QuotaManager {
   /**
    * @param {string} filePath - 额度数据文件路径
@@ -239,6 +243,12 @@ class QuotaManager {
     const data = this.cache.get(tokenId);
     if (!data || !data.models) {
       // 没有额度数据，假设有额度
+      return true;
+    }
+
+    // 数据过旧时不再可信：按“有额度”处理，避免陈旧数据永久排除或永久放行某个账号
+    // （由额度自动同步任务负责尽快刷新数据）
+    if (data.lastUpdated && Date.now() - data.lastUpdated > QUOTA_DATA_MAX_AGE_MS) {
       return true;
     }
 

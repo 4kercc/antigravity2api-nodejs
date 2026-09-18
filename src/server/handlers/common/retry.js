@@ -205,6 +205,37 @@ function getCurrentTokenId(options) {
   return options.tokenId || null;
 }
 
+// ==================== 额度自动刷新（节流） ====================
+// 修复「额度阈值不生效」的关键环节：原先 refreshQuota 从未被调用，
+// quotaManager 的额度缓存长期为空，阈值过滤形同虚设（same token 一直被用到耗尽）。
+// 这里在真实请求路径上自动刷新额度数据，并按 tokenId 做节流，避免频繁打上游。
+const QUOTA_REFRESH_MIN_INTERVAL_MS = 3 * 60 * 1000;   // 常规成功路径：每账号最多 3 分钟刷一次
+const QUOTA_REFRESH_FORCE_GAP_MS = 30 * 1000;          // 429 长冷却(额度耗尽)时：每账号最多 30 秒刷一次
+const quotaRefreshTimestamps = new Map();
+
+async function maybeRefreshQuota(options, { loggerPrefix = '', force = false } = {}) {
+  if (typeof options.refreshQuota !== 'function') return false;
+
+  const tokenId = getCurrentTokenId(options);
+  if (!tokenId) return false;
+
+  const now = Date.now();
+  const lastRefresh = quotaRefreshTimestamps.get(tokenId) || 0;
+  const minGap = force ? QUOTA_REFRESH_FORCE_GAP_MS : QUOTA_REFRESH_MIN_INTERVAL_MS;
+  if (now - lastRefresh < minGap) return false;
+
+  quotaRefreshTimestamps.set(tokenId, now);
+
+  try {
+    await options.refreshQuota();
+    logger.info(`${loggerPrefix}已自动刷新额度缓存 [${tokenId}]`);
+    return true;
+  } catch (error) {
+    logger.warn(`${loggerPrefix}自动刷新额度失败 [${tokenId}]: ${error.message}`);
+    return false;
+  }
+}
+
 function getCurrentToken(options) {
   if (typeof options.getToken === 'function') return options.getToken();
   return options.token || null;
@@ -285,7 +316,11 @@ export async function with429Retry(fn, maxRetries, options = {}, legacyOnAttempt
       if (typeof retryOptions.onAttempt === 'function') {
         retryOptions.onAttempt(attempt);
       }
-      return await fn(attempt, shouldUseCredits);
+      const result = await fn(attempt, shouldUseCredits);
+      // 成功路径：后台异步刷新额度（按 tokenId 节流，不阻塞响应），
+      // 保证「额度耗尽切换」阈值判断始终基于新鲜数据
+      maybeRefreshQuota(retryOptions, { loggerPrefix }).catch(() => {});
+      return result;
     } catch (error) {
       const status = getStatus(error);
       if (status !== 429 && status !== 503) {
@@ -305,6 +340,8 @@ export async function with429Retry(fn, maxRetries, options = {}, legacyOnAttempt
       const longQuotaCooldown = isLongQuotaCooldown(status, error, hint, longCooldownThreshold);
       if (longQuotaCooldown) {
         await applyLongQuotaCooldown({ options: retryOptions, loggerPrefix, modelId, hint, thresholdMs: longCooldownThreshold });
+        // 429 额度耗尽：强制刷新该账号额度（按最小间隔节流），让本地缓存与上游真实状态对齐
+        maybeRefreshQuota(retryOptions, { loggerPrefix, force: true }).catch(() => {});
         if (!canPollTokenForRetry) {
           throw error;
         }

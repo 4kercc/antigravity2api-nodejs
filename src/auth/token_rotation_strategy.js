@@ -68,35 +68,77 @@ class RoundRobinStrategy extends TokenRotationStrategy {
 
 /**
  * 轮询策略：Quota Exhausted（额度耗尽才切换）
- * 使用一个 token 直到其额度耗尽，再切换到下一个
+ * 使用一个 token 直到其额度耗尽（或低于阈值被过滤），再切换到下一个。
+ *
+ * 实现说明：按 tokenId 追踪“当前正在使用的账号”，而不是用数组下标。
+ * 候选列表会随额度阈值过滤动态变化（账号被剔除/恢复），下标会随之错位，
+ * 导致反复选中同一账号或跳过本该轮到的账号。
  */
 class QuotaExhaustedStrategy extends TokenRotationStrategy {
   constructor() {
     super();
-    this.currentIndex = 0;
+    /** @type {string|null} 当前正在使用的 tokenId */
+    this.currentTokenId = null;
+    /** @type {string[]} 上一次候选列表的顺序（用于定位“下一个账号”） */
+    this.lastCandidateIds = [];
+    /** @type {boolean} 是否被显式要求切换（额度被标记耗尽） */
+    this.forceAdvance = false;
   }
 
   selectToken(tokens, context) {
-    if (tokens.length === 0) return null;
-    
-    // 总是返回当前索引的 token，不自动切换
-    // 切换由外部调用 switchToNext() 触发
-    const selected = tokens[this.currentIndex % tokens.length];
+    if (tokens.length === 0) {
+      this.currentTokenId = null;
+      this.lastCandidateIds = [];
+      this.forceAdvance = false;
+      return null;
+    }
+
+    const candidateIds = tokens.map(item => item.tokenId);
+    const candidatesById = new Map(tokens.map(item => [item.tokenId, item]));
+
+    // 1. 未被要求切换且当前账号仍在候选中 → 继续使用当前账号
+    if (!this.forceAdvance && this.currentTokenId && candidatesById.has(this.currentTokenId)) {
+      this.lastCandidateIds = candidateIds;
+      return candidatesById.get(this.currentTokenId);
+    }
+
+    // 2. 需要切换：按上一次候选顺序，从当前账号之后循环查找第一个仍可用的账号
+    //    （这样账号因额度低于阈值被剔除或恢复时，都会顺延到逻辑上的“下一个”，不会跳号）
+    let selected = null;
+    const referenceOrder = this.lastCandidateIds.length > 0 ? this.lastCandidateIds : candidateIds;
+    if (this.currentTokenId) {
+      const currentPos = referenceOrder.indexOf(this.currentTokenId);
+      if (currentPos !== -1) {
+        for (let step = 1; step <= referenceOrder.length; step++) {
+          const candidateId = referenceOrder[(currentPos + step) % referenceOrder.length];
+          if (candidatesById.has(candidateId)) {
+            selected = candidatesById.get(candidateId);
+            break;
+          }
+        }
+      }
+    }
+
+    // 3. 兜底：使用候选列表中的第一个账号
+    if (!selected) selected = tokens[0];
+
+    this.currentTokenId = selected ? (selected.tokenId || null) : null;
+    this.forceAdvance = false;
+    this.lastCandidateIds = candidateIds;
     return selected;
   }
 
   /**
-   * 切换到下一个 token
-   * @param {number} totalTokens - token 总数
+   * 标记当前账号已耗尽，要求下一次选择切换到其后继账号
    */
-  switchToNext(totalTokens) {
-    if (totalTokens > 0) {
-      this.currentIndex = (this.currentIndex + 1) % totalTokens;
-    }
+  switchToNext() {
+    this.forceAdvance = true;
   }
 
   reset() {
-    this.currentIndex = 0;
+    this.currentTokenId = null;
+    this.lastCandidateIds = [];
+    this.forceAdvance = false;
   }
 
   getName() {

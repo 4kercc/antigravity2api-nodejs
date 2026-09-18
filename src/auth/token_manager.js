@@ -213,6 +213,14 @@ class TokenManager {
   }
 
   /**
+   * 确保已完成初始化（供定时任务等外部模块安全访问 token 池）
+   * @returns {Promise<void>}
+   */
+  async ensureInitialized() {
+    await this._ensureInitialized();
+  }
+
+  /**
    * 内部禁用 token（不持久化）
    * @param {string} tokenId - Token ID
    * @private
@@ -263,13 +271,53 @@ class TokenManager {
       log.warn(`没有对模型 ${modelId} 可用的token，尝试重置本地额度标记后重新校验`);
       this.pool.resetAllQuotas();
       availableTokens = await this.validator.filterAvailableTokens(this._getEnabledTokenEntries(), modelId);
+      if (availableTokens.length > 0) {
+        return availableTokens;
+      }
     }
 
-    if (availableTokens.length === 0) {
-      log.error(`没有对模型 ${modelId} 可用的token`);
+    // 兜底：所有账号都低于额度阈值时，退而选择剩余额度最高且不在冷却中的账号，
+    // 避免阈值生效后出现「全部账号被过滤 → 整体服务不可用」的情况
+    const fallbackToken = await this._pickLeastDepletedToken(this._getEnabledTokenEntries(), modelId);
+    if (fallbackToken) {
+      log.warn(`所有token均低于额度阈值，降级选择剩余额度最高的账号 [${fallbackToken.tokenId}] 继续服务`);
+      return [fallbackToken];
     }
 
-    return availableTokens;
+    log.error(`没有对模型 ${modelId} 可用的token`);
+    return [];
+  }
+
+  /**
+   * 在全部账号低于额度阈值时，挑选剩余额度最高且不在冷却中的账号（兜底降级）
+   * @param {Array<{tokenId: string, token: Object}>} entries - 候选 token 列表
+   * @param {string} modelId - 模型 ID
+   * @returns {Promise<{tokenId: string, token: Object}|null>} 兜底账号
+   * @private
+   */
+  async _pickLeastDepletedToken(entries, modelId) {
+    let bestEntry = null;
+    let bestRemaining = -1;
+
+    for (const entry of entries) {
+      if (!entry || !entry.token || !entry.tokenId) continue;
+
+      try {
+        // 跳过仍在冷却中的账号（429 恢复时间未到）
+        const isAvailable = await this.validator.isAvailableForModel(entry.token, modelId);
+        if (!isAvailable) continue;
+
+        const remaining = quotaManager.getModelGroupQuota(entry.tokenId, modelId);
+        if (remaining > bestRemaining) {
+          bestRemaining = remaining;
+          bestEntry = entry;
+        }
+      } catch (error) {
+        // 单个账号计算失败不影响兜底选择
+      }
+    }
+
+    return bestEntry;
   }
 
   /**
@@ -573,6 +621,10 @@ class TokenManager {
     return {
       strategy: this.rotationStrategyName,
       requestCount: this.requestCountPerToken,
+      // 额度耗尽切换阈值（0~1），供前端展示与外部调用方读取
+      minQuotaThreshold: Number.isFinite(config.rotation?.minQuotaThreshold)
+        ? config.rotation.minQuotaThreshold
+        : 0.20,
       currentIndex
     };
   }

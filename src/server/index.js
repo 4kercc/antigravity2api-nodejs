@@ -21,6 +21,7 @@ import { errorHandler } from '../utils/errors.js';
 import { getChunkPoolSize, clearChunkPool } from './stream.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
+import { startQuotaSyncTimer } from '../auth/quota_sync.js';
 import { certsExist, getCertPaths, generateSelfSignedCert, getCertificateInfo, issueAcmeCert } from '../utils/sslManager.js';
 
 // 路由模块
@@ -79,6 +80,10 @@ app.use((req, res, next) => {
 
 // ==================== 内存管理 ====================
 memoryManager.start(config.server.memoryCleanupInterval);
+
+// ==================== 额度自动同步 ====================
+// 定时批量刷新所有启用账号的额度数据，保证「额度耗尽切换」阈值始终基于新鲜数据
+startQuotaSyncTimer();
 
 // ==================== 基础中间件 ====================
 app.use(cors({
