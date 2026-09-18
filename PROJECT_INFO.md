@@ -121,7 +121,8 @@ antigravity2api/
   3. **后台任务失败快速上报**：`warpManager.reportNetworkFailure()` 提供滑动窗口计数（5 分钟内累计 5 次即触发重启，默认阈值 `warp.failureReportThreshold`），已接入**额度同步全部失败**与**定时遥测（ClientRegister/ClientFeature/FrontEnd）失败**两条链路，比端口轮询更快发现代理中断。
 - **错误识别缺陷修复**：原先 Token 刷新路径只匹配大写 `ECONNREFUSED`，而 `socks-proxy-agent` 实际抛出的文本是 `Socks5 proxy rejected connection - ConnectionRefused`（大小写不同）导致漏判。现已统一转小写匹配，并补充 `proxy rejected`、`connection refused`、`econnreset`、`socket hang up`、`failed to fetch`、`getaddrinfo` 等特征，同时把 `500~504` 纳入网络异常判定。
 - **配套加固**：
-  - `restartWarp` 的 shell 执行新增 30 秒超时，避免命令挂起卡死服务启动流程；
+  - `restartWarp` 的 shell 执行新增 60 秒超时（实测走 `systemctl restart warp-svc` 兜底分支时可达 25 秒，过短会在重启中途杀进程、可能让 WARP 停留在断开状态）；
+  - 启动自愈设 25 秒等待预算：超时则**不阻塞服务启动**，改由后台继续等待重启完成并校验 40000 端口就绪（日志会输出「后台补完」结果）；
   - 补齐 `config.js` 中缺失的 `warp` 配置段（此前 `warp.autoRestart` 未参与配置构建，进程重启后该开关会失效）；
   - 所有自愈动作复用既有的 60 秒冷却与 `isRestarting` 并发保护，不会产生重启风暴。
 
