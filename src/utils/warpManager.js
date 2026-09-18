@@ -95,17 +95,29 @@ class WarpManager {
 
     log.info('[WARP] 服务启动自愈：主动执行一次 WARP 重启换 IP ...');
     try {
-      const restarted = await this._withTimeout(
-        this.restartWarp('服务启动自愈（面板重启后主动换 IP）'),
-        20000,
-        false
-      );
+      // 等待预算：超过则由后台继续接管，避免服务启动被长时间阻塞
+      const restartPromise = this.restartWarp('服务启动自愈（面板重启后主动换 IP）');
+      const restarted = await this._withTimeout(restartPromise, 25000, false);
+
       if (!restarted) {
-        log.warn('[WARP] 启动自愈未完成或超时，服务继续启动（健康检查任务将持续监控）');
+        log.warn('[WARP] 启动自愈耗时超过 25 秒，服务先继续启动；后台将继续等待重启完成并校验代理端口 ...');
+        // 后台接管：等待重启真正结束并确认端口就绪（不阻塞服务启动）
+        restartPromise
+          .then(async (ok) => {
+            if (!ok) {
+              log.warn('[WARP] 启动自愈（后台补完）重启命令执行失败，健康检查任务将持续监控');
+              return;
+            }
+            const recovered = await this.waitForPort(40000, 30000);
+            log.info(recovered
+              ? '[WARP] ✓ 启动自愈（后台补完）完成，SOCKS5 代理 (40000) 已就绪'
+              : '[WARP] ⚠ 启动自愈（后台补完）后代理端口仍未就绪，健康检查任务将持续监控');
+          })
+          .catch(() => {});
         return false;
       }
 
-      const recovered = await this.waitForPort(40000, 10000);
+      const recovered = await this.waitForPort(40000, 15000);
       if (recovered) {
         log.info('[WARP] ✓ 启动自愈完成，SOCKS5 代理 (40000) 已就绪');
       } else {
@@ -370,8 +382,10 @@ class WarpManager {
     const restartCmd = 'warp restart 2>/dev/null || (warp-cli --accept-tos disconnect 2>/dev/null || warp-cli disconnect 2>/dev/null; sleep 1; warp-cli --accept-tos connect 2>/dev/null || warp-cli connect 2>/dev/null) || systemctl restart warp-svc 2>/dev/null || true';
 
     return new Promise((resolve) => {
-      // timeout: 防止 warp/systemctl 命令挂起导致调用方（含服务启动流程）被卡死
-      exec(restartCmd, { shell: '/bin/bash', timeout: 30000 }, (error, stdout, stderr) => {
+      // timeout: 防止 warp/systemctl 命令挂起导致调用方（含服务启动流程）被卡死。
+      // 注意不能设得过短：warp restart 走 systemctl 兜底分支时实测可达 25 秒，
+      // 中途被杀可能让 WARP 停留在断开状态，因此保留 60 秒上限。
+      exec(restartCmd, { shell: '/bin/bash', timeout: 60000 }, (error, stdout, stderr) => {
         this.isRestarting = false;
         if (error) {
           log.error(`[WARP] 重启失败: ${error.message}`);
