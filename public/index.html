@@ -513,8 +513,8 @@
                             </div>
                         </div>
                     </div>
-                    <button id="loadMoreLogsBtn" class="btn btn-secondary load-more-btn" onclick="loadMoreLogs()"
-                        style="display: none;">加载更多</button>
+                    <!-- 日志分页栏（每页 100 条，避免日志过多导致浏览器卡死） -->
+                    <div id="logPagination" class="log-pagination"></div>
                 </div>
 
                 <!-- 设置页面 -->

@@ -1852,11 +1852,44 @@ button.loading::after {
     font-weight: 500;
 }
 
-/* 加载更多按钮 */
-.load-more-btn {
-    margin: 1rem auto;
-    width: auto;
-    padding: 0.5rem 1.5rem;
+/* 日志分页栏（每页 100 条，防止日志过多导致浏览器卡死） */
+.log-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1.5px solid var(--border);
+    border-radius: 0.75rem;
+}
+
+.log-pagination .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.log-page-info {
+    font-size: 0.85rem;
+    color: var(--text-light, #666);
+    padding: 0 0.25rem;
+}
+
+.log-page-info b {
+    color: var(--primary, #4f46e5);
+}
+
+.log-page-hint {
+    font-size: 0.78rem;
+    color: var(--text-light, #888);
+}
+
+@media (prefers-color-scheme: dark) {
+    .log-pagination {
+        background: rgba(30, 41, 59, 0.5);
+    }
 }
 
 /* 自动刷新按钮激活状态 */

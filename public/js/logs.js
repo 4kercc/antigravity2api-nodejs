@@ -2,13 +2,12 @@
 
 // 日志状态
 let logsState = {
-    logs: [],
-    total: 0,
+    logs: [],            // 当前页日志（最新在前）
+    total: 0,            // 后端过滤后的日志总条数
     currentLevel: 'all',
     searchKeyword: '',
-    offset: 0,
-    limit: 100,
-    maxLogs: 500, // 最大保留日志条数，防止内存无限增长
+    pageSize: 100,       // 每页条数（固定 100 条最新，防止日志过多导致浏览器卡死）
+    currentPage: 1,      // 当前页码（1 = 最新一页）
     autoRefresh: false,
     autoRefreshTimer: null,
     stats: { total: 0, info: 0, warn: 0, error: 0, request: 0, debug: 0 },
@@ -18,18 +17,21 @@ let logsState = {
     wsReconnectTimer: null
 };
 
-// 加载日志
-async function loadLogs(append = false) {
+// 计算总页数
+function getLogTotalPages() {
+    return Math.max(1, Math.ceil(logsState.total / logsState.pageSize));
+}
+
+// 加载当前页日志
+async function loadLogs() {
     try {
-        if (!append) {
-            logsState.offset = 0;
-        }
+        const offset = (logsState.currentPage - 1) * logsState.pageSize;
 
         const params = new URLSearchParams({
             level: logsState.currentLevel,
             search: logsState.searchKeyword,
-            limit: logsState.limit,
-            offset: logsState.offset
+            limit: logsState.pageSize,
+            offset
         });
 
         const response = await fetch(`/admin/logs?${params}`, {
@@ -42,18 +44,16 @@ async function loadLogs(append = false) {
 
         const data = await response.json();
         if (data.success) {
-            if (append) {
-                logsState.logs = [...logsState.logs, ...data.data.logs];
-            } else {
-                logsState.logs = data.data.logs;
+            logsState.logs = data.data.logs || [];
+            logsState.total = data.data.total || 0;
+
+            // 当前页超出范围（例如日志被清空或筛选后变少）时，回退到最后一页
+            const maxPage = getLogTotalPages();
+            if (logsState.currentPage > maxPage) {
+                logsState.currentPage = maxPage;
+                return loadLogs();
             }
 
-            // 限制日志数量，防止内存无限增长
-            if (logsState.logs.length > logsState.maxLogs) {
-                logsState.logs = logsState.logs.slice(-logsState.maxLogs);
-            }
-
-            logsState.total = data.data.total;
             renderLogs();
         }
     } catch (error) {
@@ -115,7 +115,7 @@ async function clearLogs() {
 // 筛选日志级别
 function filterLogLevel(level) {
     logsState.currentLevel = level;
-    logsState.offset = 0;
+    logsState.currentPage = 1; // 筛选后回到最新一页
 
     // 更新统计项的激活状态
     renderLogStats();
@@ -126,14 +126,56 @@ function filterLogLevel(level) {
 // 搜索日志
 function searchLogs(keyword) {
     logsState.searchKeyword = keyword;
-    logsState.offset = 0;
+    logsState.currentPage = 1; // 搜索后回到最新一页
     loadLogs();
 }
 
-// 加载更多日志
-function loadMoreLogs() {
-    logsState.offset += logsState.limit;
-    loadLogs(true);
+// ==================== 日志分页 ====================
+
+// 跳转到指定页
+function goToLogPage(page) {
+    const target = Math.min(Math.max(1, Number(page) || 1), getLogTotalPages());
+    if (target === logsState.currentPage) return;
+
+    logsState.currentPage = target;
+    loadLogs();
+}
+
+// 回到最新一页（第 1 页）
+function goToLatestLogs() {
+    goToLogPage(1);
+}
+
+// 查看较新的一页（页码减 1）
+function logsPrevPage() {
+    goToLogPage(logsState.currentPage - 1);
+}
+
+// 查看较旧的一页（页码加 1）
+function logsNextPage() {
+    goToLogPage(logsState.currentPage + 1);
+}
+
+// 渲染分页栏
+function renderLogPagination() {
+    const bar = document.getElementById('logPagination');
+    if (!bar) return;
+
+    const totalPages = getLogTotalPages();
+    const page = logsState.currentPage;
+    const total = logsState.total;
+    const start = total === 0 ? 0 : (page - 1) * logsState.pageSize + 1;
+    const end = Math.min(page * logsState.pageSize, total);
+
+    bar.innerHTML = `
+        <button class="btn btn-sm btn-secondary" onclick="goToLatestLogs()" ${page <= 1 ? 'disabled' : ''} title="回到最新一页">⏮ 最新</button>
+        <button class="btn btn-sm btn-secondary" onclick="logsPrevPage()" ${page <= 1 ? 'disabled' : ''} title="查看比当前更新的一页">◀ 较新</button>
+        <span class="log-page-info">
+            第 <b>${page}</b> / ${totalPages} 页 · 显示 ${start}-${end} 条 · 共 ${total} 条（每页 ${logsState.pageSize} 条）
+        </span>
+        <button class="btn btn-sm btn-secondary" onclick="logsNextPage()" ${page >= totalPages ? 'disabled' : ''} title="查看比当前更早的一页">较旧 ▶</button>
+        ${page > 1 ? '<span class="log-page-hint">（第 1 页为最新日志，可点「⏮ 最新」返回）</span>' : ''}
+    `;
 }
 
 // 切换自动刷新
@@ -250,6 +292,7 @@ function renderLogs() {
                 <div class="log-empty-text">暂无日志</div>
             </div>
         `;
+        renderLogPagination();
         return;
     }
 
@@ -310,13 +353,8 @@ function renderLogs() {
     // 滚动到底部（显示最新日志）
     container.scrollTop = container.scrollHeight;
 
-    // 更新加载更多按钮状态
-    const loadMoreBtn = document.getElementById('loadMoreLogsBtn');
-    if (loadMoreBtn) {
-        const hasMore = logsState.logs.length < logsState.total;
-        loadMoreBtn.style.display = hasMore ? 'block' : 'none';
-        loadMoreBtn.textContent = `加载更多 (${logsState.logs.length}/${logsState.total})`;
-    }
+    // 更新分页栏
+    renderLogPagination();
 }
 
 // HTML 转义
@@ -414,10 +452,16 @@ function connectLogWebSocket() {
 function handleWsMessage(data) {
     switch (data.type) {
         case 'history':
-            // 接收历史日志
-            logsState.logs = data.logs.reverse(); // 转为最新在前
+            // 仅在尚未通过 HTTP 加载到分页数据时，才用 WebSocket 历史作为兜底
+            // （已有分页数据时忽略，避免覆盖当前页内容）
+            if (logsState.logs.length > 0) break;
+
+            logsState.logs = data.logs.slice().reverse(); // 转为最新在前
+            if (logsState.logs.length > logsState.pageSize) {
+                logsState.logs = logsState.logs.slice(0, logsState.pageSize);
+            }
             logsState.total = data.logs.length;
-            updateStats();
+            // 说明：统计数字以 loadLogStats() 的服务端数据为准，这里不再用局部日志重算覆盖
             renderLogs();
             break;
 
@@ -437,24 +481,30 @@ function handleWsMessage(data) {
     }
 }
 
-// 添加新日志
+// 添加新日志（WebSocket 实时推送）
 function addNewLog(log) {
     // 插入到开头（最新的在前）
     logsState.logs.unshift(log);
-    logsState.total++;
 
-    // 限制数量
-    if (logsState.logs.length > logsState.maxLogs) {
+    // 严格限制当前页最多保留 pageSize 条，避免内存无限增长
+    while (logsState.logs.length > logsState.pageSize) {
         logsState.logs.pop();
     }
 
-    // 更新统计
+    // 更新统计（统计口径与后端一致：不包含分隔符行）
     if (!isSeparatorLine(log.message)) {
+        logsState.total++;
         logsState.stats.total++;
         if (logsState.stats[log.level] !== undefined) {
             logsState.stats[log.level]++;
         }
         renderLogStats();
+    }
+
+    // 仅在“最新一页”做实时追加；浏览历史页时不打断用户视图，只更新页码信息
+    if (logsState.currentPage !== 1) {
+        renderLogPagination();
+        return;
     }
 
     // 检查是否匹配当前筛选条件
@@ -466,8 +516,9 @@ function addNewLog(log) {
         return; // 不匹配搜索关键词
     }
 
-    // 追加到 DOM
+    // 追加到 DOM（内部会自动裁剪超出每页条数的旧节点）
     appendLogToDOM(log);
+    renderLogPagination();
 }
 
 // 追加单条日志到 DOM（增量渲染）
@@ -520,6 +571,11 @@ function appendLogToDOM(log) {
     // 追加到底部
     container.appendChild(logElement);
 
+    // 严格裁剪：DOM 中最多保留一页的条数，防止长时间运行后节点无限堆积导致浏览器卡死
+    while (container.children.length > logsState.pageSize) {
+        container.removeChild(container.firstElementChild);
+    }
+
     // 滚动到底部
     container.scrollTop = container.scrollHeight;
 }
@@ -570,10 +626,12 @@ function disconnectLogWebSocket() {
 
 // 初始化日志页面
 function initLogsPage() {
-    // 优先使用 WebSocket 实时推送
-    connectLogWebSocket();
+    // 先通过 HTTP 加载当前页（分页数据的权威来源，每页 100 条最新日志）
+    loadLogs();
     // 加载统计（始终需要）
     loadLogStats();
+    // 再连接 WebSocket 接收实时增量推送（仅追加，不再重复拉取全量）
+    connectLogWebSocket();
 }
 
 // 清理日志页面（切换离开时）
@@ -590,7 +648,7 @@ function cleanupLogsPage() {
     // 清空日志数据释放内存
     logsState.logs = [];
     logsState.total = 0;
-    logsState.offset = 0;
+    logsState.currentPage = 1;
 
     // 清空 DOM 内容
     const container = document.getElementById('logList');
