@@ -179,12 +179,17 @@ class RequesterManager {
     const code = error?.code || error?.cause?.code;
     if (code === 'ERR_CONFIG') return false;
     if (code === 'ECONNABORTED' || code === 'ERR_NETWORK') return true;
+    // 二进制无法执行（缺执行权限 EACCES / 损坏 / 架构不匹配）→ 降级 axios，避免整条链路硬失败
+    if (code === 'ERR_SPAWN') return true;
     const message = (error?.message || '').toLowerCase();
     return message.includes('dial tcp') ||
       message.includes('missing address') ||
       message.includes('no such host') ||
       message.includes('connection refused') ||
       message.includes('protocol mismatch') ||
+      message.includes('failed to spawn') ||
+      message.includes('eacces') ||
+      message.includes('permission denied') ||
       message.includes('tls') ||
       message.includes('handshake') ||
       message.includes('timeout');

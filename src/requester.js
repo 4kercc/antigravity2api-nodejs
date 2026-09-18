@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { existsSync, chmodSync } from 'fs';
+import { existsSync, chmodSync, accessSync, constants as fsConstants } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { platform, arch } from 'os';
@@ -125,7 +125,35 @@ class FingerprintRequester {
     return binaryPath;
   }
 
-  async request(config) {
+  /**
+   * 确保二进制文件具备执行权限。
+   * 场景：部署时 `git reset --hard` 会按 git 索引的权限（100644）重写文件，
+   *      导致运行中的进程在文件被替换后 spawn 失败（EACCES）；
+   *      这里在每次请求前做一次轻量校验并自动补回执行位。
+   * @returns {boolean} 执行位是否已就绪（Windows 恒为 true）
+   */
+  _ensureExecutable() {
+    if (platform() === 'win32') return true;
+    if (!this.binaryPath) return false;
+
+    try {
+      accessSync(this.binaryPath, fsConstants.X_OK);
+      return true;
+    } catch {
+      try {
+        chmodSync(this.binaryPath, 0o755);
+        console.warn(`[requester] 已自动补回二进制执行权限: ${this.binaryPath}`);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+  }
+
+  async request(config, _spawnRetried = false) {
+    // 每次请求前确保二进制仍具备执行权限（部署替换文件后可能丢失）
+    this._ensureExecutable();
+
     const {
       method = 'GET',
       url,
@@ -348,6 +376,18 @@ class FingerprintRequester {
 
       proc.on('error', (err) => {
         clearTimeout(timeoutId);
+
+        // 执行权限丢失（EACCES/EPERM）时自愈权限并重试一次，
+        // 覆盖「运行期间二进制被 git reset --hard 替换」导致权限回退的情况
+        if ((err.code === 'EACCES' || err.code === 'EPERM') && !_spawnRetried) {
+          const healed = this._ensureExecutable();
+          if (healed) {
+            console.warn(`[requester] 检测到二进制丢失执行权限，已自动修复并重试: ${this.binaryPath}`);
+            this.request(config, true).then(resolve, reject);
+            return;
+          }
+        }
+
         const error = new Error(`Failed to spawn process: ${err.message}`);
         error.code = 'ERR_SPAWN';
         error.config = config;
