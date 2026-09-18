@@ -135,6 +135,17 @@ antigravity2api/
   4. **鲁棒性**：页码越界自动夹紧（避免「第 53 / 1 页」这类异常显示），清空日志后重置回第 1 页，筛选/搜索自动回到最新页；WebSocket `history` 仅作为 HTTP 未就绪时的兜底，不再覆盖已加载的分页数据。
 - **验证方式**：伪 DOM 逻辑仿真（模拟单页 250 条数据 + 连续 5000 条实时推送），确认 DOM 节点数恒定 100、翻页 offset 正确、历史页不被推送打断、越界页码被夹紧。
 
+### 9. 指纹二进制执行权限丢失（EACCES）根因修复
+- **故障现象**：`[QuotaSync] 账号额度同步失败 ... API请求失败 (500): Failed to spawn process: spawn .../src/bin/fingerprint_linux_amd64 EACCES`，全部账号同步失败（0/12）。
+- **根因（两层）**：
+  1. **git 索引把二进制记录为 `100644`（无执行位）**：每次部署执行 `git reset --hard` 都会按索引权限重写文件，把此前 `chmod +x` 的结果抹掉；
+  2. **运行中的进程只在初始化时 chmod 一次**：`_detectBinary()` 里的 `chmodSync` 仅在构造请求器时执行，之后文件被部署替换（权限回退）时无法自愈；且 `ERR_SPAWN` 不在 axios 降级判定内，导致请求直接硬失败而非降级。
+- **修复措施**：
+  1. **git 层（根治）**：`git update-index --chmod=+x` 将 `fingerprint_linux_amd64`、`fingerprint_android_arm64`、`fingerprint_windows_amd64.exe` 标记为 `100755`，此后任何克隆/检出都自带执行位；
+  2. **运行时自愈**：`requester.js` 新增 `_ensureExecutable()`，每次请求前用 `accessSync(X_OK)` 轻量校验，失效即自动 `chmod 755`；并在 spawn 遇 `EACCES/EPERM` 时自愈后重试一次；
+  3. **优雅降级**：`requesterManager._shouldFallbackToAxios()` 纳入 `ERR_SPAWN`、`failed to spawn`、`eacces`、`permission denied`，二进制不可执行时自动降级 axios，不再让整条链路 500。
+- **验证**：部署后 `src/bin/fingerprint_*` 检出即为 `-rwxr-xr-x`，日志依次出现 `使用 FingerprintRequester（TLS 指纹）请求` → `积分自动同步完成: 成功 12 个` → `[QuotaSync] 额度自动同步完成: 成功 12 个`。
+
 ### 9. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
 - **账号全链路追踪**：控制台与 WebUI 日志实时高亮输出当前请求命中的账号标识 `[账号: user@gmail.com]`、`[账号: project-id]` 或 `[渠道: AIStudio-1]`，方便快速定位特定账号的额度或风控异常；
 - **参数自适应安全钳制**：自动将超上限的 `max_tokens`（如 `128000`）钳制在 Google API 允许的安全阈值 `64000`；
