@@ -135,7 +135,7 @@ antigravity2api/
   4. **鲁棒性**：页码越界自动夹紧（避免「第 53 / 1 页」这类异常显示），清空日志后重置回第 1 页，筛选/搜索自动回到最新页；WebSocket `history` 仅作为 HTTP 未就绪时的兜底，不再覆盖已加载的分页数据。
 - **验证方式**：伪 DOM 逻辑仿真（模拟单页 250 条数据 + 连续 5000 条实时推送），确认 DOM 节点数恒定 100、翻页 offset 正确、历史页不被推送打断、越界页码被夹紧。
 
-### 9. 指纹二进制执行权限丢失（EACCES）根因修复
+### 11. 指纹二进制执行权限丢失（EACCES）根因修复
 - **故障现象**：`[QuotaSync] 账号额度同步失败 ... API请求失败 (500): Failed to spawn process: spawn .../src/bin/fingerprint_linux_amd64 EACCES`，全部账号同步失败（0/12）。
 - **根因（两层）**：
   1. **git 索引把二进制记录为 `100644`（无执行位）**：每次部署执行 `git reset --hard` 都会按索引权限重写文件，把此前 `chmod +x` 的结果抹掉；
@@ -146,7 +146,18 @@ antigravity2api/
   3. **优雅降级**：`requesterManager._shouldFallbackToAxios()` 纳入 `ERR_SPAWN`、`failed to spawn`、`eacces`、`permission denied`，二进制不可执行时自动降级 axios，不再让整条链路 500。
 - **验证**：部署后 `src/bin/fingerprint_*` 检出即为 `-rwxr-xr-x`，日志依次出现 `使用 FingerprintRequester（TLS 指纹）请求` → `积分自动同步完成: 成功 12 个` → `[QuotaSync] 额度自动同步完成: 成功 12 个`。
 
-### 9. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
+### 12. 账号风控识别与自动禁用（移植 cockpit-tools 判定算法）
+- **需求背景**：部分账号在使用中会被 Google 要求二次验证（Antigravity IDE 报 `Error Verification Required`），或被判定违反服务条款；原程序只能笼统地「403 即禁用」，既无法说明原因，也无法给出验证/申诉入口。
+- **判定算法（移植自 [cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的 `wakeup_verification.rs`）**：新增 `src/utils/accountRiskDetector.js`，在上游返回 **403** 时解析响应体的 Google RPC ErrorInfo：
+  1. `error.details[]` 中 `@type = type.googleapis.com/google.rpc.ErrorInfo` 且 `reason = VALIDATION_REQUIRED` → **风控要求验证**，提取 `metadata.validation_url`；
+  2. `reason = TOS_VIOLATION` → **违反服务条款被封禁**，提取 `metadata.appeal_url`；
+  3. 兼容 `details` 为「字符串化 JSON」的形态，以及 403 但 reason 未知时的兜底；
+  4. 无结构化错误时回退文本特征：`tos_violation / violation of terms` → 封禁，`authorization expired / unauthorized / unauthenticated` → 授权失效，含 `403` → 要求验证。
+- **自动禁用与持久化**：`TokenManager.markTokenRisk()` 会立即禁用账号并把 `riskStatus / riskLabel / riskMessage / riskValidationUrl / riskAppealUrl / riskDetectedAt` 写入 `accounts.json`（`_normalizeToken` 采用展开复制，字段不会被丢弃），日志同时打印验证/申诉链接；新增 `POST /admin/tokens/:tokenId/clear-risk` 供处理完成后清除标记并重新启用。
+- **前端提示**：Token 卡片新增红色风控告警条（🚫 要求验证 / ⛔ 违规封禁 / 🔑 授权失效），点击弹出详情弹窗，内含状态、检测时间、处理指引、**可点击的验证/申诉链接**、原始错误折叠区，以及「我已处理，清除标记并启用」按钮；新检测到的风控账号会在进入 Token 页面时**自动弹窗提示**（同一会话每个账号仅提示一次）。
+- **验证**：`scripts/test-risk-detector.mjs` 覆盖 16 个用例（VALIDATION_REQUIRED / TOS_VIOLATION / 字符串化 details / 未知 reason 兜底 / 文本兜底 / 400、429 不误判）全部通过；并用真实浏览器端到端验证卡片告警与弹窗共 15 项检查全部通过。
+
+### 13. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
 - **账号全链路追踪**：控制台与 WebUI 日志实时高亮输出当前请求命中的账号标识 `[账号: user@gmail.com]`、`[账号: project-id]` 或 `[渠道: AIStudio-1]`，方便快速定位特定账号的额度或风控异常；
 - **参数自适应安全钳制**：自动将超上限的 `max_tokens`（如 `128000`）钳制在 Google API 允许的安全阈值 `64000`；
 - **高级 JSON Schema 深度清洗**：展开 `anyOf` / `oneOf` 联合类型，剥离 `format`、`default`、`annotations` 等 Google 禁用字段，彻底解决复杂 MCP 工具调用时的 400 校验拒绝问题。
