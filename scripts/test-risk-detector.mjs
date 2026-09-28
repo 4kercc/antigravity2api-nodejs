@@ -1,4 +1,4 @@
-import { detectAccountRisk, isAccountRisk, getRiskLabel, RISK_STATUS } from './src/utils/accountRiskDetector.js';
+import { detectAccountRisk, isAccountRisk, getRiskLabel, RISK_STATUS } from '../src/utils/accountRiskDetector.js';
 
 let pass = 0, fail = 0;
 const t = (name, cond, detail = '') => {
