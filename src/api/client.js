@@ -494,7 +494,24 @@ export async function getModelsWithQuotas(token) {
     });
     userQuotaSummary = summaryRes?.data;
   } catch (err) {
-    logger.warn('获取 retrieveUserQuotaSummary 失败:', err.message);
+    // 风控识别（关键信号）：账号被风控时该接口返回 403，响应体携带 google.rpc.ErrorInfo
+    // （reason = VALIDATION_REQUIRED / TOS_VIOLATION）以及验证链接。
+    // 该调用在「额度定时同步」中会对每个启用账号执行，因此账号即使长时间空闲也能被及时发现并禁用。
+    try {
+      const riskBody = await readUpstreamErrorBody(err);
+      const risk = detectAccountRisk(
+        riskBody,
+        err?.response?.status || err?.status || 403,
+        { requireExplicitReason: true } // 后台探测要求明确 reason，避免仅凭 403 误判
+      );
+      if (isAccountRisk(risk.kind)) {
+        await tokenManager.markTokenRisk(token, risk);
+      } else {
+        logger.warn('获取 retrieveUserQuotaSummary 失败:', err.message);
+      }
+    } catch (detectError) {
+      logger.warn('获取 retrieveUserQuotaSummary 失败:', err.message);
+    }
   }
 
   // 从 retrieveUserQuotaSummary 提取周额度 bucket 信息

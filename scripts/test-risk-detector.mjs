@@ -93,5 +93,38 @@ r = detectAccountRisk({
 }, 403);
 t('对象入参识别正常', r.kind === RISK_STATUS.VERIFICATION_REQUIRED && r.validationUrl === 'https://obj.example.com/v', `${r.kind}/${r.validationUrl}`);
 
+// ============ 8. 真实抓包响应体（retrieveUserQuotaSummary 返回的风控 403） ============
+const realBody = JSON.stringify({
+  error: {
+    code: 403,
+    message: 'The caller does not have permission',
+    status: 'PERMISSION_DENIED',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        reason: 'VALIDATION_REQUIRED',
+        domain: 'cloudcode-pa.googleapis.com',
+        metadata: {
+          validation_error_message: 'Verify your account to continue.',
+          validation_url_link_text: 'Verify your account',
+          validation_url: 'https://accounts.google.com/signin/continue?sarp=1&scc=1&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini',
+          validation_learn_more_url: 'https://support.google.com/accounts?p=al_alert'
+        }
+      },
+      { '@type': 'type.googleapis.com/google.rpc.Help', links: [{ description: 'Verify your account', url: 'https://accounts.google.com/signin/continue' }] }
+    ]
+  }
+});
+r = detectAccountRisk(realBody, 403, { requireExplicitReason: true });
+t('真实响应体（严格模式）→ verification_required', r.kind === RISK_STATUS.VERIFICATION_REQUIRED, r.kind);
+t('真实响应体提取 validation_url', (r.validationUrl || '').startsWith('https://accounts.google.com/signin/continue'), r.validationUrl);
+t('优先使用 metadata 提示文案', r.message === 'Verify your account to continue.', r.message);
+
+// ============ 9. 严格模式：无明确 reason 的 403 不误判 ============
+r = detectAccountRisk(JSON.stringify({ error: { code: 403, message: 'blocked', details: [] } }), 403, { requireExplicitReason: true });
+t('严格模式：403 无 reason → 不判定（防误禁）', r.kind === null, String(r.kind));
+r = detectAccountRisk(JSON.stringify({ error: { code: 403, message: 'blocked', details: [] } }), 403);
+t('非严格模式：403 兜底仍判定', r.kind === RISK_STATUS.VERIFICATION_REQUIRED, r.kind);
+
 console.log(`\n===== 通过 ${pass} / ${pass + fail} =====`);
 if (fail > 0) process.exit(1);

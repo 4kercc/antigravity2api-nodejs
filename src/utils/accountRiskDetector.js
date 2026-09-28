@@ -111,13 +111,33 @@ function extractMessage(parsed, fallback) {
 }
 
 /**
+ * 从 ErrorInfo.metadata 中提取更友好的提示文案（如 "Verify your account to continue."）
+ * @param {Array<Object>} details
+ * @param {string} reason
+ * @returns {string|null}
+ */
+function extractMetadataMessage(details, reason) {
+  for (const item of details) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.reason !== reason) continue;
+    const text = item?.metadata?.validation_error_message;
+    if (typeof text === 'string' && text.trim()) return text.trim();
+  }
+  return null;
+}
+
+/**
  * 识别账号风控状态
  *
  * @param {*} errorBody - 上游错误响应体（字符串或对象）
  * @param {number|null} status - HTTP 状态码（可选，默认从 403 语义推断）
+ * @param {Object} [options]
+ * @param {boolean} [options.requireExplicitReason=false] - 是否要求明确的 reason/文本特征命中才判定
+ *        （用于后台定时探测场景：避免仅凭「403 无详情」就禁用账号造成误判）
  * @returns {{kind: string|null, status: string|null, message: string, validationUrl: string|null, appealUrl: string|null, errorCode: number|null}}
  */
-export function detectAccountRisk(errorBody, status = null) {
+export function detectAccountRisk(errorBody, status = null, options = {}) {
+  const { requireExplicitReason = false } = options;
   const fallbackText = typeof errorBody === 'string' ? errorBody : JSON.stringify(errorBody ?? '');
   const parsed = coerceJson(errorBody);
   const httpStatus = Number(status) || (parsed ? null : 403);
@@ -126,11 +146,12 @@ export function detectAccountRisk(errorBody, status = null) {
   const details = extractErrorDetails(parsed);
   if (details.length > 0) {
     const appealUrl = extractUrlByReason(details, 'TOS_VIOLATION', 'appeal_url');
-    if (appealUrl) {
+    const hasTosReason = details.some(item => item?.reason === 'TOS_VIOLATION');
+    if (appealUrl || hasTosReason) {
       return {
         kind: RISK_STATUS.TOS_VIOLATION,
         status: RISK_STATUS.TOS_VIOLATION,
-        message: extractMessage(parsed, fallbackText),
+        message: extractMetadataMessage(details, 'TOS_VIOLATION') || extractMessage(parsed, fallbackText),
         validationUrl: null,
         appealUrl,
         errorCode: 403
@@ -138,11 +159,12 @@ export function detectAccountRisk(errorBody, status = null) {
     }
 
     const validationUrl = extractUrlByReason(details, 'VALIDATION_REQUIRED', 'validation_url');
-    if (validationUrl) {
+    const hasValidationReason = details.some(item => item?.reason === 'VALIDATION_REQUIRED');
+    if (validationUrl || hasValidationReason) {
       return {
         kind: RISK_STATUS.VERIFICATION_REQUIRED,
         status: RISK_STATUS.VERIFICATION_REQUIRED,
-        message: extractMessage(parsed, fallbackText),
+        message: extractMetadataMessage(details, 'VALIDATION_REQUIRED') || extractMessage(parsed, fallbackText),
         validationUrl,
         appealUrl: null,
         errorCode: 403
@@ -150,7 +172,8 @@ export function detectAccountRisk(errorBody, status = null) {
     }
 
     // 有 details 但未命中已知 reason 时，若为 403 仍按风控处理（与 cockpit-tools 一致）
-    if (httpStatus === 403) {
+    // 后台定时探测场景（requireExplicitReason）不做该兜底，避免误判
+    if (!requireExplicitReason && httpStatus === 403) {
       return {
         kind: RISK_STATUS.VERIFICATION_REQUIRED,
         status: RISK_STATUS.VERIFICATION_REQUIRED,
@@ -176,6 +199,17 @@ export function detectAccountRisk(errorBody, status = null) {
     };
   }
 
+  if (lower.includes('validation_required') || lower.includes('verify your account')) {
+    return {
+      kind: RISK_STATUS.VERIFICATION_REQUIRED,
+      status: RISK_STATUS.VERIFICATION_REQUIRED,
+      message: fallbackText,
+      validationUrl: null,
+      appealUrl: null,
+      errorCode: 403
+    };
+  }
+
   if (lower.includes('authorization expired') || lower.includes('unauthorized') || lower.includes('unauthenticated')) {
     return {
       kind: RISK_STATUS.AUTH_EXPIRED,
@@ -187,7 +221,7 @@ export function detectAccountRisk(errorBody, status = null) {
     };
   }
 
-  if (lower.includes('403')) {
+  if (!requireExplicitReason && lower.includes('403')) {
     return {
       kind: RISK_STATUS.VERIFICATION_REQUIRED,
       status: RISK_STATUS.VERIFICATION_REQUIRED,
