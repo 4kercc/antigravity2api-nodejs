@@ -153,9 +153,10 @@ antigravity2api/
   2. `reason = TOS_VIOLATION` → **违反服务条款被封禁**，提取 `metadata.appeal_url`；
   3. 兼容 `details` 为「字符串化 JSON」的形态，以及 403 但 reason 未知时的兜底；
   4. 无结构化错误时回退文本特征：`tos_violation / violation of terms` → 封禁，`authorization expired / unauthorized / unauthenticated` → 授权失效，含 `403` → 要求验证。
-- **自动禁用与持久化**：`TokenManager.markTokenRisk()` 会立即禁用账号并把 `riskStatus / riskLabel / riskMessage / riskValidationUrl / riskAppealUrl / riskDetectedAt` 写入 `accounts.json`（`_normalizeToken` 采用展开复制，字段不会被丢弃），日志同时打印验证/申诉链接；新增 `POST /admin/tokens/:tokenId/clear-risk` 供处理完成后清除标记并重新启用。
+- **探测时机（关键：空闲账号也能发现）**：实测被风控账号的 `fetchAvailableModels` 仍返回 200（额度照常显示 100%），真正的风控信号来自 **`retrieveUserQuotaSummary` 返回的 403**，其响应体同样携带 `VALIDATION_REQUIRED` 与 `validation_url`。该异常原先被 `logger.warn` 静默吞掉，导致空闲账号永远识别不到。现已在 `getModelsWithQuotas` 的该分支接入风控识别（**严格模式** `requireExplicitReason: true`，必须命中明确 reason/文本特征才判定，避免仅凭 403 误禁），由于「额度定时同步」每 10 分钟对所有启用账号执行一次，账号无需产生任何用户请求即可被发现；生成接口（`client.js` / `geminicli_client.js`）的 403 分支同样接入（非严格模式）。
+- **自动禁用与持久化**：`TokenManager.markTokenRisk()` 会立即禁用账号并把 `riskStatus / riskLabel / riskMessage / riskValidationUrl / riskAppealUrl / riskDetectedAt` 写入 `accounts.json`（`_normalizeToken` 采用展开复制，字段不会被丢弃），日志同时打印验证/申诉链接；新增 `POST /admin/tokens/:tokenId/clear-risk` 供处理完成后清除标记并重新启用。提示文案优先取 `metadata.validation_error_message`（如 "Verify your account to continue."）。
 - **前端提示**：Token 卡片新增红色风控告警条（🚫 要求验证 / ⛔ 违规封禁 / 🔑 授权失效），点击弹出详情弹窗，内含状态、检测时间、处理指引、**可点击的验证/申诉链接**、原始错误折叠区，以及「我已处理，清除标记并启用」按钮；新检测到的风控账号会在进入 Token 页面时**自动弹窗提示**（同一会话每个账号仅提示一次）。
-- **验证**：`scripts/test-risk-detector.mjs` 覆盖 16 个用例（VALIDATION_REQUIRED / TOS_VIOLATION / 字符串化 details / 未知 reason 兜底 / 文本兜底 / 400、429 不误判）全部通过；并用真实浏览器端到端验证卡片告警与弹窗共 15 项检查全部通过。
+- **验证**：`scripts/test-risk-detector.mjs` 覆盖 21 个用例（VALIDATION_REQUIRED / TOS_VIOLATION / 字符串化 details / **真实抓包响应体** / 严格模式防误禁 / 未知 reason 兜底 / 文本兜底 / 400、429 不误判）全部通过；真实浏览器端到端验证（弹窗 + 卡片告警）15 项通过；线上实测自动识别并禁用 2 个风控账号（`cikebc@gmail.com`、`ralphjdtmcmenemy9@gmail.com`），卡片显示「🚫 风控要求验证 · 已自动禁用」。
 
 ### 13. 请求日志账号溯源与 400 INVALID_ARGUMENT 参数自愈
 - **账号全链路追踪**：控制台与 WebUI 日志实时高亮输出当前请求命中的账号标识 `[账号: user@gmail.com]`、`[账号: project-id]` 或 `[渠道: AIStudio-1]`，方便快速定位特定账号的额度或风控异常；
