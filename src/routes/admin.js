@@ -418,6 +418,29 @@ router.put('/tokens/:tokenId', cookieAuthMiddleware, async (req, res) => {
   }
 });
 
+// 清除账号风控标记（用户完成验证/申诉后调用，可选同时重新启用账号）
+router.post('/tokens/:tokenId/clear-risk', cookieAuthMiddleware, async (req, res) => {
+  const { tokenId } = req.params;
+  const { enable = false } = req.body || {};
+
+  try {
+    const cleared = await tokenManager.clearTokenRisk(tokenId);
+    if (!cleared) {
+      return res.status(404).json({ success: false, message: '未找到该账号或清除失败' });
+    }
+
+    if (enable) {
+      await tokenManager.updateTokenById(tokenId, { enable: true });
+    }
+
+    logger.info(`已清除账号风控标记: ${tokenId}${enable ? '（并已重新启用）' : ''}`);
+    res.json({ success: true, message: enable ? '风控标记已清除，账号已重新启用' : '风控标记已清除' });
+  } catch (error) {
+    logger.error('清除风控标记失败:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.delete('/tokens/:tokenId', cookieAuthMiddleware, async (req, res) => {
   const { tokenId } = req.params;
   try {

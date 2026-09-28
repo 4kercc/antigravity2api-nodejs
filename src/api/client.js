@@ -29,6 +29,7 @@ import {
   dumpFinalRawResponse
 } from './debugDump.js';
 import { getUpstreamStatus, readUpstreamErrorBody, isCallerDoesNotHavePermission } from './upstreamError.js';
+import { detectAccountRisk, isAccountRisk, getRiskLabel } from '../utils/accountRiskDetector.js';
 import { createStreamLineProcessor } from './streamLineProcessor.js';
 import { runSseStream, postJsonAndParse } from './geminiTransport.js';
 import { parseGeminiCandidateParts, toOpenAIUsage } from './geminiResponseParser.js';
@@ -299,6 +300,23 @@ async function handleApiError(error, token, dumpId = null) {
     if (isCallerDoesNotHavePermission(errorBody)) {
       throw createApiError(`超出模型最大上下文。错误详情: ${errorBody}`, status, errorBody);
     }
+
+    // 风控识别（算法移植自 cockpit-tools）：
+    // 区分「风控要求验证 / 违反条款被封禁 / 授权失效」，命中后自动禁用账号并记录处理链接
+    const risk = detectAccountRisk(errorBody, status);
+    if (isAccountRisk(risk.kind)) {
+      await tokenManager.markTokenRisk(token, risk);
+      const hints = [
+        risk.validationUrl ? `请完成验证: ${risk.validationUrl}` : '',
+        risk.appealUrl ? `申诉入口: ${risk.appealUrl}` : ''
+      ].filter(Boolean).join('；');
+      throw createApiError(
+        `账号已被${getRiskLabel(risk.kind)}，已自动禁用。${hints}`,
+        status,
+        errorBody
+      );
+    }
+
     tokenManager.disableToken(token);
     throw createApiError(`该账号没有使用权限，已自动禁用。错误详情: ${errorBody}`, status, errorBody);
   }

@@ -1038,6 +1038,16 @@ function renderTokens(tokens) {
                     <span class="token-id">#${tokenNumber}</span>
                 </div>
             </div>
+            ${token.riskStatus ? `
+            <div class="token-risk-banner" onclick="showRiskDetail('${safeTokenId}')" title="点击查看风控详情与处理方式">
+                <span class="token-risk-icon">${token.riskStatus === 'tos_violation' ? '⛔' : (token.riskStatus === 'auth_expired' ? '🔑' : '🚫')}</span>
+                <span class="token-risk-text">
+                    <strong>${escapeHtml(token.riskLabel || '账号异常')}</strong>
+                    <span class="token-risk-sub">已自动禁用 · 点击查看处理方式</span>
+                </span>
+                <span class="token-risk-arrow">›</span>
+            </div>
+            ` : ''}
             <div class="token-info">
                 <div class="info-row editable sensitive-row" onclick="editField(event, '${safeTokenId}', 'projectId', '${safeProjectIdJs}')" title="点击编辑">
                     <span class="info-label">📦</span>
@@ -1080,6 +1090,147 @@ function renderTokens(tokens) {
 
     // 重置动画跳过标志
     skipAnimation = false;
+
+    // 新检测到的风控账号自动弹窗提示（每个会话每个账号仅弹一次）
+    maybeAutoShowRiskAlerts(filteredTokens);
+}
+
+// ==================== 账号风控（风险状态）提示 ====================
+// 判定来源：后端识别上游 403 响应中的 Google RPC ErrorInfo
+//   VALIDATION_REQUIRED → 风控要求验证；TOS_VIOLATION → 违反条款被封禁
+// 命中后后端会自动禁用账号，这里负责卡片告警与处理指引。
+
+const RISK_ACK_KEY = 'antigravity_ack_risk_tokens';
+
+function getAcknowledgedRiskTokens() {
+    try {
+        return new Set(JSON.parse(sessionStorage.getItem(RISK_ACK_KEY) || '[]'));
+    } catch (e) {
+        return new Set();
+    }
+}
+
+function acknowledgeRiskToken(tokenId) {
+    try {
+        const set = getAcknowledgedRiskTokens();
+        set.add(tokenId);
+        sessionStorage.setItem(RISK_ACK_KEY, JSON.stringify([...set]));
+    } catch (e) {
+        // 忽略 sessionStorage 异常
+    }
+}
+
+/**
+ * 自动弹窗提示新检测到的风控账号
+ * @param {Array} tokens - 当前渲染的 Token 列表
+ */
+function maybeAutoShowRiskAlerts(tokens) {
+    if (!Array.isArray(tokens)) return;
+
+    const acknowledged = getAcknowledgedRiskTokens();
+    const freshRisks = tokens.filter(t => t.riskStatus && !acknowledged.has(t.id));
+    if (freshRisks.length === 0) return;
+
+    freshRisks.forEach(t => acknowledgeRiskToken(t.id));
+
+    const notice = freshRisks.length > 1
+        ? `本次共检测到 ${freshRisks.length} 个异常账号，均已自动禁用，请逐个处理。`
+        : '';
+    showRiskDetail(freshRisks[0].id, notice);
+}
+
+/**
+ * 显示账号风控详情弹窗（含验证 / 申诉链接与处理指引）
+ * @param {string} tokenId
+ * @param {string} extraNotice - 额外提示文案
+ */
+function showRiskDetail(tokenId, extraNotice = '') {
+    const token = cachedTokens.find(t => t.id === tokenId);
+    if (!token || !token.riskStatus) {
+        showToast('未找到该账号的风控信息', 'warning');
+        return;
+    }
+
+    const isTos = token.riskStatus === 'tos_violation';
+    const icon = isTos ? '⛔' : (token.riskStatus === 'auth_expired' ? '🔑' : '🚫');
+    const detectedAt = token.riskDetectedAt ? new Date(token.riskDetectedAt).toLocaleString('zh-CN', { hour12: false }) : '-';
+    const account = token.email || token.projectId || token.id.substring(0, 12);
+
+    const guidance = isTos
+        ? '该账号被 Google 判定为违反服务条款。请通过下方申诉入口提交申诉，处理完成后可点击「我已处理」重新启用。'
+        : (token.riskStatus === 'auth_expired'
+            ? '该账号的授权已失效。建议删除后重新登录添加，或点击「我已处理」后手动刷新 Token。'
+            : '该账号被 Google 风控，要求完成身份/账号验证后才能继续使用。请点击下方验证链接完成验证，完成后可点击「我已处理」重新启用。');
+
+    const linkRow = (label, url) => url ? `
+        <div class="risk-link-row">
+            <span class="risk-link-label">${label}</span>
+            <a class="risk-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>
+            <button class="btn btn-xs btn-secondary" onclick="navigator.clipboard.writeText('${escapeJs(url)}'); showToast('链接已复制', 'info');">📋</button>
+        </div>
+    ` : '';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal form-modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 640px;">
+            <div class="modal-title">${icon} 账号风控提示</div>
+
+            ${extraNotice ? `<div class="risk-notice">${escapeHtml(extraNotice)}</div>` : ''}
+
+            <div class="risk-detail-grid">
+                <div><strong>账号：</strong><span>${escapeHtml(account)}</span></div>
+                <div><strong>状态：</strong><span class="risk-status-tag ${isTos ? 'tos' : 'verify'}">${escapeHtml(token.riskLabel || '账号异常')}</span></div>
+                <div><strong>检测时间：</strong><span>${escapeHtml(detectedAt)}</span></div>
+                <div><strong>当前处理：</strong><span style="color:#ef4444; font-weight:bold;">已自动禁用</span></div>
+            </div>
+
+            <div class="risk-guidance">${escapeHtml(guidance)}</div>
+
+            ${linkRow('🔗 验证链接：', token.riskValidationUrl)}
+            ${linkRow('⚖️ 申诉入口：', token.riskAppealUrl)}
+
+            ${token.riskMessage ? `
+                <details class="risk-message-details">
+                    <summary>查看上游返回的原始错误信息</summary>
+                    <pre class="risk-message-pre">${escapeHtml(String(token.riskMessage).slice(0, 2000))}</pre>
+                </details>
+            ` : ''}
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="riskCloseBtn">关闭</button>
+                <button class="btn btn-success" id="riskHandledBtn">✅ 我已处理，清除标记并启用</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector('#riskCloseBtn').onclick = () => modal.remove();
+
+    modal.querySelector('#riskHandledBtn').onclick = async () => {
+        showLoading('正在清除风控标记...');
+        try {
+            const response = await authFetch(`/admin/tokens/${encodeURIComponent(tokenId)}/clear-risk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enable: true })
+            });
+            const data = await response.json();
+            hideLoading();
+            if (data.success) {
+                showToast('风控标记已清除，账号已重新启用', 'success');
+                modal.remove();
+                acknowledgeRiskToken(tokenId);
+                skipAnimation = true;
+                loadTokens();
+            } else {
+                showToast(data.message || '操作失败', 'error');
+            }
+        } catch (e) {
+            hideLoading();
+            showToast('请求异常: ' + e.message, 'error');
+        }
+    };
 }
 
 // 手动刷新 Token（使用 tokenId）

@@ -16,6 +16,7 @@ import {
   dumpFinalRawResponse
 } from './debugDump.js';
 import { getUpstreamStatus, readUpstreamErrorBody, isCallerDoesNotHavePermission } from './upstreamError.js';
+import { detectAccountRisk, isAccountRisk, getRiskLabel } from '../utils/accountRiskDetector.js';
 import { createStreamLineProcessor } from './streamLineProcessor.js';
 import { runSseStream, postJsonAndParse } from './geminiTransport.js';
 import { parseGeminiCandidateParts, toOpenAIUsage } from './geminiResponseParser.js';
@@ -94,6 +95,19 @@ async function handleApiError(error, token) {
     if (isCallerDoesNotHavePermission(errorBody)) {
       throw createApiError(`超出模型最大上下文。错误详情: ${errorBody}`, status, errorBody);
     }
+
+    // 风控识别：区分「要求验证 / 违规封禁 / 授权失效」，便于日志与前端排查
+    const risk = detectAccountRisk(errorBody, status);
+    if (isAccountRisk(risk.kind)) {
+      const hints = [
+        risk.validationUrl ? `请完成验证: ${risk.validationUrl}` : '',
+        risk.appealUrl ? `申诉入口: ${risk.appealUrl}` : ''
+      ].filter(Boolean).join('；');
+      logger.warn(`🚫 [GeminiCLI] 账号检测到${getRiskLabel(risk.kind)}，已自动禁用。${hints}`);
+      geminicliTokenManager.disableCurrentToken(token);
+      throw createApiError(`账号已被${getRiskLabel(risk.kind)}，已自动禁用。${hints}`, status, errorBody);
+    }
+
     geminicliTokenManager.disableCurrentToken(token);
     throw createApiError(`该账号没有使用权限，已自动禁用。错误详情: ${errorBody}`, status, errorBody);
   }

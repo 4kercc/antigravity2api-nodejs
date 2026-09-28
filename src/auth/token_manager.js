@@ -11,6 +11,7 @@ import { StrategyFactory, RotationStrategy } from './token_rotation_strategy.js'
 import { TokenError } from '../utils/errors.js';
 import quotaManager from './quota_manager.js';
 import tokenCooldownManager from './token_cooldown_manager.js';
+import { getRiskLabel } from '../utils/accountRiskDetector.js';
 import { randomUUID } from 'crypto';
 
 /**
@@ -532,6 +533,115 @@ class TokenManager {
   }
 
   /**
+   * 标记账号风控状态并自动禁用（识别到「要求验证 / 违规封禁 / 授权失效」时调用）
+   * 判定算法与 cockpit-tools 一致，详见 utils/accountRiskDetector.js
+   *
+   * @param {Object} token - Token 对象
+   * @param {{kind: string, message?: string, validationUrl?: string|null, appealUrl?: string|null, errorCode?: number|null}} risk - 风控识别结果
+   * @returns {Promise<boolean>} 是否成功标记
+   */
+  async markTokenRisk(token, risk) {
+    if (!token || !risk?.kind) return false;
+
+    const tokenId = await this.pool.findTokenId(token.refresh_token);
+    if (!tokenId) {
+      log.warn('尝试标记不存在token的风控状态');
+      return false;
+    }
+
+    const riskInfo = {
+      riskStatus: risk.kind,
+      riskLabel: getRiskLabel(risk.kind),
+      riskMessage: risk.message ? String(risk.message).slice(0, 800) : '',
+      riskValidationUrl: risk.validationUrl || null,
+      riskAppealUrl: risk.appealUrl || null,
+      riskErrorCode: risk.errorCode ?? null,
+      riskDetectedAt: Date.now()
+    };
+
+    // 1. 池内同步：禁用 + 记录风控字段
+    this.pool.disable(tokenId);
+    this.pool.update(tokenId, riskInfo);
+
+    // 2. 持久化到 tokens.json
+    try {
+      const allTokens = await this.store.readAll();
+      let index = -1;
+      for (let i = 0; i < allTokens.length; i++) {
+        const currentTokenId = await this.pool.generateTokenId(allTokens[i]);
+        if (currentTokenId === tokenId) {
+          index = i;
+          break;
+        }
+      }
+      if (index !== -1) {
+        allTokens[index] = { ...allTokens[index], enable: false, ...riskInfo };
+        await this.store.writeAll(allTokens);
+      }
+    } catch (error) {
+      log.error(`持久化风控状态失败: ${error.message}`);
+    }
+
+    // 3. 明确日志提示（含验证 / 申诉链接）
+    const account = token.email || token.projectId || tokenId.substring(0, 10);
+    log.warn(`🚫 账号 [${account}] 检测到${getRiskLabel(risk.kind)}，已自动禁用该账号`);
+    if (risk.validationUrl) {
+      log.warn(`   ↳ 需要完成验证: ${risk.validationUrl}`);
+    }
+    if (risk.appealUrl) {
+      log.warn(`   ↳ 如需申诉: ${risk.appealUrl}`);
+    }
+
+    return true;
+  }
+
+  /**
+   * 清除账号风控标记（用户手动处理完验证后可调用）
+   * @param {string} tokenId - Token ID
+   * @returns {Promise<boolean>} 是否成功清除
+   */
+  async clearTokenRisk(tokenId) {
+    if (!tokenId) return false;
+    await this._ensureInitialized();
+
+    const token = this.pool.get(tokenId);
+    if (!token) return false;
+
+    const cleared = {
+      riskStatus: null,
+      riskLabel: null,
+      riskMessage: null,
+      riskValidationUrl: null,
+      riskAppealUrl: null,
+      riskErrorCode: null,
+      riskDetectedAt: null
+    };
+    this.pool.update(tokenId, cleared);
+
+    try {
+      const allTokens = await this.store.readAll();
+      let index = -1;
+      for (let i = 0; i < allTokens.length; i++) {
+        const currentTokenId = await this.pool.generateTokenId(allTokens[i]);
+        if (currentTokenId === tokenId) {
+          index = i;
+          break;
+        }
+      }
+      if (index !== -1) {
+        allTokens[index] = { ...allTokens[index], ...cleared };
+        await this.store.writeAll(allTokens);
+      }
+    } catch (error) {
+      log.error(`清除风控状态失败: ${error.message}`);
+      return false;
+    }
+
+    log.info(`已清除账号 [${token.email || tokenId.substring(0, 10)}] 的风控标记`);
+    return true;
+  }
+
+  /**
    * 标记 token 额度耗尽
    * @param {Object} token - Token 对象
    */
@@ -666,7 +776,14 @@ class TokenManager {
           email: token.email || null,
           hasQuota: token.hasQuota !== false,
           sub: token.sub || null,
-          credits: token.credits !== null && token.credits !== undefined ? token.credits : null
+          credits: token.credits !== null && token.credits !== undefined ? token.credits : null,
+          // 风控状态（要求验证 / 违规封禁 / 授权失效）
+          riskStatus: token.riskStatus || null,
+          riskLabel: token.riskLabel || null,
+          riskMessage: token.riskMessage || null,
+          riskValidationUrl: token.riskValidationUrl || null,
+          riskAppealUrl: token.riskAppealUrl || null,
+          riskDetectedAt: token.riskDetectedAt || null
         };
       });
     } catch (error) {
