@@ -3,6 +3,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import log from '../utils/logger.js';
 import { deepMerge } from '../utils/deepMerge.js';
+import { DEFAULT_INPUT_TOKEN_LIMIT } from '../utils/inputTokenGuard.js';
 import { getConfigPaths } from '../utils/paths.js';
 import { parseEnvFile } from '../utils/envParser.js';
 import {
@@ -366,6 +367,26 @@ function getGeminiCliApiConfig(jsonConfig, upstreamCfg) {
 }
 
 /**
+ * 解析正数配置项（非法值返回 0，便于用 || 兜底）
+ * @param {any} value
+ * @returns {number}
+ */
+function getPositiveNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+/**
+ * 解析 0~1 之间的比例配置项（非法值返回 0）
+ * @param {any} value
+ * @returns {number}
+ */
+function getRatio(value) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 && num < 1 ? num : 0;
+}
+
+/**
  * 从 JSON 和环境变量构建配置对象
  * @param {Object} jsonConfig - JSON 配置对象
  * @param {Object} upstreamCfg - upstream.json 配置对象（只读）
@@ -453,6 +474,22 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
     // ==================== 外部上游渠道分流配置 ====================
     channels: {
       routingMode: jsonConfig.channels?.routingMode || 'fallback' // 'fallback' (原生优先) | 'external_first' (外部优先) | 'external_only' (强制仅外部)
+    },
+
+    // ==================== 输入上下文超限守卫 ====================
+    inputTokenGuard: {
+      // 是否在请求上游之前预检输入 token（默认开启；环境变量 INPUT_TOKEN_GUARD=0 可关闭）
+      enabled: process.env.INPUT_TOKEN_GUARD !== undefined
+        ? (process.env.INPUT_TOKEN_GUARD === 'true' || process.env.INPUT_TOKEN_GUARD === '1')
+        : (jsonConfig.inputTokenGuard?.enabled !== false),
+      // 模型单次输入上限（token），默认 1048576（Gemini / Antigravity 上限）
+      limit: getPositiveNumber(jsonConfig.inputTokenGuard?.limit)
+        || getPositiveNumber(process.env.INPUT_TOKEN_LIMIT)
+        || DEFAULT_INPUT_TOKEN_LIMIT,
+      // 达到上限多少比例时记录「接近上限」告警日志（默认 0.9）
+      warnRatio: getRatio(jsonConfig.inputTokenGuard?.warnRatio) || 0.9,
+      // 单张内联图片的 token 估算值（默认 1300）
+      imageTokenEstimate: getPositiveNumber(jsonConfig.inputTokenGuard?.imageTokenEstimate) || 1300
     },
 
     // ==================== Cloudflare WARP / 代理自愈配置 ====================

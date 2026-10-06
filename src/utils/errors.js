@@ -125,6 +125,29 @@ export class TokenError extends AppError {
 }
 
 /**
+ * 输入上下文超限错误（单次请求输入超过模型上限，如 1M token）
+ *
+ * 与普通上游错误区分开：对外返回 OpenAI 规范的
+ * type=invalid_request_error / code=context_length_exceeded，
+ * 便于客户端（Cline / Roo 等）识别后自动裁剪上下文。
+ */
+export class InputTokenLimitError extends AppError {
+  /**
+   * @param {string} message - 面向用户的中文提示
+   * @param {{ estimatedTokens?: number|null, limit?: number|null, precheck?: boolean }} [meta]
+   */
+  constructor(message, meta = {}) {
+    super(message, 400, 'invalid_request_error');
+    this.name = 'InputTokenLimitError';
+    this.code = 'context_length_exceeded';
+    this.isInputTokenLimitError = true;
+    this.estimatedTokens = meta.estimatedTokens ?? null;
+    this.limit = meta.limit ?? null;
+    this.precheck = meta.precheck === true;
+  }
+}
+
+/**
  * 创建上游 API 错误（工厂函数）
  * @param {string} message - 错误消息
  * @param {number} status - HTTP 状态码
@@ -157,6 +180,17 @@ function extractErrorMessage(error) {
  * @returns {{error: {message: string, type: string, code: number}}}
  */
 export function buildOpenAIErrorPayload(error, statusCode) {
+  // 输入上下文超限：返回 OpenAI 规范 code，便于客户端识别并自动裁剪上下文
+  if (error instanceof InputTokenLimitError || error?.isInputTokenLimitError) {
+    return {
+      error: {
+        message: error.message,
+        type: 'invalid_request_error',
+        code: 'context_length_exceeded'
+      }
+    };
+  }
+
   // 处理上游 API 错误
   if (error.isUpstreamApiError && error.rawBody) {
     try {

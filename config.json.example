@@ -31,6 +31,12 @@
   "cache": {
     "modelListTTL": 3600000
   },
+  "inputTokenGuard": {
+    "enabled": true,
+    "limit": 1048576,
+    "warnRatio": 0.9,
+    "imageTokenEstimate": 1300
+  },
   "other": {
     "timeout": 300000,
     "retryTimes": 10,

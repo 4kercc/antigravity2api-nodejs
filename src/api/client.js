@@ -11,7 +11,15 @@ import { createTelemetryBatch, serializeTelemetryBatch } from "../utils/createTe
 import { createLog1, createLog2 } from "../utils/additionalLogs.js"
 import { buildClientRegister, buildFrontEnd, buildClientFeatrueHeaders, buildClientRegisterHeaders, buildFrontEndHeaders } from "../utils/unleash.js"
 import { DEFAULT_RETRY_INTERVAL_MS, MODEL_LIST_CACHE_TTL, QA_PAIRS } from '../constants/index.js';
-import { createApiError } from '../utils/errors.js';
+import { createApiError, InputTokenLimitError } from '../utils/errors.js';
+import {
+  assertInputTokensWithinLimit,
+  estimateInputTokens,
+  isInputTokenLimitError,
+  parseUpstreamInputLimit,
+  buildInputTokenLimitMessage,
+  DEFAULT_INPUT_TOKEN_LIMIT
+} from '../utils/inputTokenGuard.js';
 import { generateCheckpointBody } from '../utils/checkPoint.js';
 import axios from 'axios';
 import {
@@ -278,8 +286,29 @@ async function withUpstreamFallback(fn) {
   throw lastError;
 }
 
+/**
+ * 发送上游前的输入 token 预检（本地启发式估算）
+ *
+ * 明显超过模型单次上限时直接抛出 InputTokenLimitError（400），
+ * 避免把注定失败的请求发给上游、白白消耗账号额度与时间。
+ * @param {any} requestBody - 即将发送给上游的完整请求体
+ * @returns {{ tokens: number, images: number, limit: number, nearLimit: boolean }|null}
+ */
+function precheckInputTokens(requestBody) {
+  try {
+    const info = assertInputTokensWithinLimit(requestBody, config.inputTokenGuard);
+    if (info?.nearLimit) {
+      logger.warn(`⚠️ [输入超限预检] 本次输入约 ${info.tokens} token，已接近模型上限 ${info.limit}`);
+    }
+    return info;
+  } catch (error) {
+    logger.warn(`⛔ [输入超限预检] ${error.message}`);
+    throw error;
+  }
+}
+
 // 统一错误处理
-async function handleApiError(error, token, dumpId = null) {
+async function handleApiError(error, token, dumpId = null, context = {}) {
   const status = getUpstreamStatus(error);
   const errorBody = await readUpstreamErrorBody(error);
 
@@ -288,6 +317,20 @@ async function handleApiError(error, token, dumpId = null) {
   }
 
   const errorStr = String(errorBody ?? '');
+
+  // 输入上下文超过模型单次上限（如 1M token）：转成中文可读提示，
+  // 避免用户把「上下文过大」误判成账号失效 / 额度耗尽
+  if (isInputTokenLimitError(errorBody)) {
+    const limit = parseUpstreamInputLimit(errorBody)
+      || Number(config.inputTokenGuard?.limit)
+      || DEFAULT_INPUT_TOKEN_LIMIT;
+    const estimatedTokens = Number(context?.estimatedTokens) > 0
+      ? Number(context.estimatedTokens)
+      : (context?.requestBody ? estimateInputTokens(context.requestBody).tokens : null);
+    const message = buildInputTokenLimitMessage({ estimatedTokens, limit });
+    logger.warn(`⚠️ [输入超限] ${message}`);
+    throw new InputTokenLimitError(message, { estimatedTokens, limit });
+  }
 
   // 遇到地区限制/IP不受支持时，自动触发 WARP 重启更换出口 IP
   if (errorStr.includes('User location is not supported') || errorStr.includes('location is not supported')) {
@@ -329,6 +372,7 @@ async function handleApiError(error, token, dumpId = null) {
 
 export async function generateAssistantResponse(requestBody, token, callback) {
   startTokenTimer(token);
+  precheckInputTokens(requestBody);
   const trajectoryId = requestBody.requestId.split('/')[2];
   const conversationId = randomUUID();
   const messageId = randomUUID();
@@ -395,7 +439,7 @@ export async function generateAssistantResponse(requestBody, token, callback) {
     sendLog(token, num, trajectoryId, conversationId, messageId).catch(err => logger.warn('发送log失败:', err.message));
     sendCheckPoint(token).catch(err => logger.warn('发送checkPoint失败:', err.message));;
   } catch (error) {
-    await handleApiError(error, token, dumpId);
+    await handleApiError(error, token, dumpId, { requestBody });
   }
 }
 
@@ -555,6 +599,7 @@ export async function getModelsWithQuotas(token) {
 
 export async function generateAssistantResponseNoStream(requestBody, token) {
   startTokenTimer(token);
+  precheckInputTokens(requestBody);
   const trajectoryId = requestBody.requestId.split('/')[2];
   const conversationId = randomUUID();
   const messageId = randomUUID();
@@ -584,7 +629,7 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
     sendRecordTrajectoryAnalytics(token, num, trajectoryId, messageId, conversationId, modelName).catch(err => logger.warn('发送轨迹分析失败:', err.message));
     sendLog(token, num, trajectoryId, conversationId, messageId).catch(err => logger.warn('发送log失败:', err.message));
   } catch (error) {
-    await handleApiError(error, token, dumpId);
+    await handleApiError(error, token, dumpId, { requestBody });
   }
   //console.log(JSON.stringify(data));
   const parts = data.response?.candidates?.[0]?.content?.parts || [];
@@ -638,6 +683,7 @@ export async function generateAssistantResponseNoStream(requestBody, token) {
 
 export async function generateImageForSD(requestBody, token) {
   startTokenTimer(token);
+  precheckInputTokens(requestBody);
   const trajectoryId = requestBody.requestId.split('/')[2];
   const conversationId = randomUUID();
   const messageId = randomUUID();
@@ -657,7 +703,7 @@ export async function generateImageForSD(requestBody, token) {
     });
     data = result.data;
   } catch (error) {
-    await handleApiError(error, token);
+    await handleApiError(error, token, null, { requestBody });
   }
   sendRecordCodeAssistMetrics(token, trajectoryId).catch(err => logger.warn('发送RecordCodeAssistMetrics失败:', err.message));
   sendRecordTrajectoryAnalytics(token, num, trajectoryId, messageId, conversationId, modelName).catch(err => logger.warn('发送轨迹分析失败:', err.message));

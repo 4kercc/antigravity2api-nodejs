@@ -18,6 +18,7 @@ import {
 } from '../formatters/openai.js';
 import { validateIncomingChatRequest } from '../validators/chat.js';
 import { getSafeRetries } from './common/retry.js';
+import { describeExternalChannelError } from './common/externalChannelError.js';
 import {
   createResponseMeta,
   setStreamHeaders,
@@ -118,7 +119,7 @@ export const handleOpenAIRequest = async (req, res) => {
           clearInterval(heartbeatTimer);
           logger.error(`外部渠道 [${chan.name}] 处理请求失败:`, err.message);
           if (!res.headersSent) {
-            return res.status(502).json({ error: `External channel error: ${err.message}` });
+            return res.status(502).json({ error: `External channel error: ${describeExternalChannelError(err)}` });
           } else {
             return endStream(res);
           }
@@ -147,7 +148,7 @@ export const handleOpenAIRequest = async (req, res) => {
         } catch (err) {
           logger.error(`外部渠道 [${chan.name}] 处理非流式请求失败:`, err.message);
           if (!res.headersSent) {
-            return res.status(502).json({ error: `External channel error: ${err.message}` });
+            return res.status(502).json({ error: `External channel error: ${describeExternalChannelError(err)}` });
           }
         }
       }

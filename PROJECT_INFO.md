@@ -171,6 +171,26 @@ antigravity2api/
   - 前端 Token 卡片头部新增 **💬 按钮**，弹窗内可选模型（预置常见模型 datalist）、输入测试内容，结果区以绿/黄/红三色区分「测试通过 / 普通失败 / 命中风控」，风控结果附带可点击的验证与申诉链接；测试成功会刷新列表以更新用量。
 - **验证**：接口实测健康账号返回 `✅ 测试通过 | 耗时 4117ms | 回复"正常" | 286/1/533 tokens`；真实浏览器端到端 8 项检查全部通过（按钮存在、弹窗控件、默认模型、发送后展示回复与耗时用量、无 JS 错误）。
 
+### 15. 输入上下文超限（1M token）预检与中文提示
+- **问题背景**：用户遇到 `生成响应失败: API请求失败 (400): {"error":{"code":400,"message":"The input token count exceeds the maximum number of tokens allowed 1048576.","status":"INVALID_ARGUMENT"}}`。这是**上下文长度问题，不是账号/额度问题**：`1048576` 即 2²⁰，是模型单次请求的**输入上限**（用户日志中已有请求达到 `In 613797` 量级，接近该上限）。原样抛出英文报错容易让人误判为账号失效或额度耗尽。
+- **新增模块 `src/utils/inputTokenGuard.js`**（纯函数、无副作用，可单测）：
+  - `estimateTextTokens` / `estimateInputTokens`：启发式估算输入 token——CJK 字符 ≈ 1 token/字符，其他字符 ≈ 1 token/4 字符，内联 base64 图片按固定估值（默认 1300，可通过 `imageTokenEstimate` 配置）计，避免按 base64 长度爆炸式高估；带循环引用防护与深度上限；
+  - `isInputTokenLimitError` / `parseUpstreamInputLimit`：识别上游超限报文并解析真实上限（如 `allowed 1048576`），兼容 Google / OpenAI 两种措辞；
+  - `buildInputTokenLimitMessage`：生成中文可读提示（含上限、本次估算值与处理建议）；
+  - `assertInputTokensWithinLimit`：请求发出前的预检守卫，超限抛 `InputTokenLimitError`。
+- **新增错误类型 `InputTokenLimitError`**（`src/utils/errors.js`）：HTTP 400，对外返回 OpenAI 规范 `type: invalid_request_error` / `code: context_length_exceeded`，便于 Cline / Roo 等客户端识别后自动裁剪上下文。
+- **接入点**：
+  - `src/api/client.js` 三个入口（流式 `generateAssistantResponse`、非流式 `generateAssistantResponseNoStream`、图片 `generateImageForSD`）在发请求前调用 `precheckInputTokens()`，**明显超限直接拦截**（不再浪费一次注定失败的上游请求与账号额度），达到上限 90% 时记录「接近上限」告警；
+  - `handleApiError` 新增超限识别分支：命中即抛中文提示错误（不再原样透出英文报文），并带上本地估算值作为参考；
+  - `src/server/handlers/common/externalChannelError.js`：外部渠道 502 分支统一提取上游 `error.message`，超限时同样转中文提示（同时解决了原先只暴露 axios「Request failed with status code 400」泛化文案的问题）。
+- **配置项 `inputTokenGuard`**（`config.json`，默认开启；`config.json.example` 已同步）：
+  ```json
+  "inputTokenGuard": { "enabled": true, "limit": 1048576, "warnRatio": 0.9, "imageTokenEstimate": 1300 }
+  ```
+  环境变量覆盖：`INPUT_TOKEN_GUARD=0` 关闭预检、`INPUT_TOKEN_LIMIT=<n>` 改上限。
+- **验证**：`node scripts/test-input-token-guard.mjs` —— 44 条用例全部通过（文本/图片估算、循环引用、真实超限报文识别、误判防护、预检拦截与放行边界、错误响应格式、外部渠道错误描述）；另实测 `config.inputTokenGuard` 正确加载、client 与三个 handler 模块导入图正常。
+- **未做（保留给客户端/按需）**：自动裁剪最老消息以塞进上限的行为**默认不开启**——静默改动用户上下文有语义风险，建议由客户端新建会话处理。
+
 ---
 
 ## 🔧 四、 运维与常用命令

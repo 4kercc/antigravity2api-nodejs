@@ -15,6 +15,7 @@ import quotaManager from '../../auth/quota_manager.js';
 import { createGeminiResponse } from '../formatters/gemini.js';
 import { validateIncomingChatRequest } from '../validators/chat.js';
 import { getSafeRetries } from './common/retry.js';
+import { describeExternalChannelError } from './common/externalChannelError.js';
 import {
   setStreamHeaders,
   createHeartbeat,
@@ -185,7 +186,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
           clearInterval(heartbeatTimer);
           logger.error(`外部渠道 [${chan.name}] 处理 Gemini 流式请求失败:`, err.message);
           if (!res.headersSent) {
-            return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+            return res.status(502).json({ error: { code: 502, message: `External channel error: ${describeExternalChannelError(err)}` } });
           } else {
             return endStream(res);
           }
@@ -204,7 +205,7 @@ export const handleGeminiRequest = async (req, res, modelName, isStream) => {
         } catch (err) {
           logger.error(`外部渠道 [${chan.name}] 处理 Gemini 非流式请求失败:`, err.message);
           if (!res.headersSent) {
-            return res.status(502).json({ error: { code: 502, message: `External channel error: ${err.message}` } });
+            return res.status(502).json({ error: { code: 502, message: `External channel error: ${describeExternalChannelError(err)}` } });
           }
         }
       }
