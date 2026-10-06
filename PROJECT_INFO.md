@@ -200,8 +200,13 @@ antigravity2api/
   环境变量覆盖：`INPUT_TOKEN_GUARD=0` 关闭预检、`INPUT_TOKEN_LIMIT=<n>` 改上限。
 - **验证**：
   - `node scripts/test-input-token-guard.mjs` —— 62 条用例全部通过（文本/图片/签名估算、循环引用、data URL 识别、真实超限报文识别、误判防护、预检拦截与放行边界、安全余量、错误响应格式、外部渠道错误描述）；
-  - 线上端到端实测：正常小请求 `HTTP 200`；440 万字符超限请求 `HTTP 400` 且 0.09 秒返回中文提示（未打上游），响应体为 `{"error":{"message":"请求已被提前拦截：…","type":"invalid_request_error","code":"context_length_exceeded"}}`；
-  - 部署后复核线上真实流量：排除签名后，原先被误拦截的「估算 107.7 万」类请求已恢复正常，仍超限的超大请求继续被拦截。
+  - 线上端到端实测（最终构建，直接打真实上游）：
+    | 场景 | 结果 |
+    | --- | --- |
+    | 正常小请求 | `HTTP 200`，正常返回 |
+    | 600 万字符（估算 150 万 token，超出余量） | `HTTP 400` 秒拦，响应体 `{"error":{"message":"请求已被提前拦截：…","type":"invalid_request_error","code":"context_length_exceeded"}}` |
+    | **440 万字符（估算 110 万 token，落在 15% 余量内）** | **放行后上游实际接受并返回 `HTTP 200`**（重复字符实测约 8 字符/token，真实约 55 万 token）——证明安全余量确实避免了「估算虚高导致误拦」 |
+  - 排障可观测性：拦截日志会打印估算来源（`request.contents[4].parts[0].thoughtSignature | signature | 126216 字符 ≈ 0 token`），线上正是靠这条日志定位到「签名被误计入」这个根因。
 - **未做（保留给客户端/按需）**：自动裁剪最老消息以塞进上限的行为**默认不开启**——静默改动用户上下文有语义风险，建议由客户端新建会话处理。
 
 ---
