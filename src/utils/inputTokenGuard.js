@@ -6,14 +6,18 @@
  *   400 INVALID_ARGUMENT: The input token count exceeds the maximum number of tokens allowed 1048576.
  *
  * 本地无法精确分词（与上游 tokenizer 存在差异），因此这里使用启发式估算：
- *   - CJK 字符（中/日/韩）≈ 1 token / 字符
- *   - 其他字符 ≈ 1 token / 4 字符
+ *   - CJK 字符（中/日/韩）≈ 1 token / 字符（实测：4000 个中文 → 4000 token）
+ *   - 其他字符 ≈ 1 token / 4 字符（偏保守；实测连续重复字符约 8 字符/token）
  *   - 内联 base64 图片 ≈ 固定估值（若按 base64 长度换算会严重高估）
+ *   - 思考签名（thoughtSignature 等）**不计入**（实测签名不占用输入 token）
  *
  * 估算值有两个用途：
  *   1. 请求发出前预检，明显超限时提前拦截（避免无谓的上游请求与账号消耗）
  *   2. 上游返回超限 400 时，在中文提示里给出参考数值
  * 估算值不参与精确计费，仅作提示。
+ *
+ * 由于是启发式估算，宁可漏报不可误报：拦截阈值额外叠加 safetyRatio 安全余量，
+ * 漏报时上游仍会返回 400，并由 handleApiError 转成同一套中文提示。
  */
 
 import { InputTokenLimitError } from './errors.js';
