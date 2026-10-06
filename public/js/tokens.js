@@ -1032,6 +1032,7 @@ function renderTokens(tokens) {
                     </span>
                     ${token.sub ? `<span class="status-subscription subscription-badge ${token.sub === 'free-tier' ? 'free-tier' : 'paid-tier'}" title="${escapeHtml(token.sub)}">${escapeHtml(formatSubTier(token.sub))}</span>` : ''}
                     <button class="btn-icon token-refresh-btn ${isRefreshing ? 'loading' : ''}" id="refresh-btn-${escapeHtml(cardId)}" onclick="manualRefreshToken('${safeTokenId}')" title="刷新Token" ${isRefreshing ? 'disabled' : ''}>🔄</button>
+                    <button class="btn-icon token-chat-test-btn" onclick="showTestChatModal('${safeTokenId}')" title="对话测试：验证该账号能否正常使用">💬</button>
                 </div>
                 <div class="token-header-right">
                     <button class="btn-icon" onclick="showTokenDetail('${safeTokenId}')" title="编辑">✏️</button>
@@ -1093,6 +1094,136 @@ function renderTokens(tokens) {
 
     // 新检测到的风控账号自动弹窗提示（每个会话每个账号仅弹一次）
     maybeAutoShowRiskAlerts(filteredTokens);
+}
+
+// ==================== 对话测试（验证账号能否正常使用） ====================
+
+const TEST_CHAT_MODELS = [
+    'gemini-3.8-flash',
+    'gemini-3.8-pro',
+    'gemini-3.7-flash',
+    'claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'gemini-3.1-flash-image'
+];
+
+/**
+ * 打开「对话测试」弹窗：使用该账号真实调用上游，验证能否正常回复
+ * @param {string} tokenId
+ */
+function showTestChatModal(tokenId) {
+    const token = cachedTokens.find(t => t.id === tokenId);
+    if (!token) {
+        showToast('未找到该账号信息', 'error');
+        return;
+    }
+
+    const account = token.email || token.projectId || tokenId.substring(0, 12);
+
+    const modal = document.createElement('div');
+    modal.className = 'modal form-modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 680px;">
+            <div class="modal-title">💬 对话测试</div>
+            <div class="test-chat-account">
+                测试账号：<strong>${escapeHtml(account)}</strong>
+                ${token.enable === false ? '<span class="test-chat-warn">（当前为禁用状态，测试仍会真实调用上游）</span>' : ''}
+            </div>
+
+            <div class="form-group compact">
+                <label>模型</label>
+                <input type="text" id="testChatModel" list="testChatModelList" value="gemini-3.8-flash" placeholder="例如: gemini-3.8-flash">
+                <datalist id="testChatModelList">
+                    ${TEST_CHAT_MODELS.map(m => `<option value="${m}"></option>`).join('')}
+                </datalist>
+            </div>
+
+            <div class="form-group compact">
+                <label>测试内容</label>
+                <textarea id="testChatMessage" rows="3" placeholder="输入要发送给模型的内容">你好，请只回复两个字：正常</textarea>
+            </div>
+
+            <div class="test-chat-result hidden" id="testChatResult"></div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="testChatCloseBtn">关闭</button>
+                <button class="btn btn-success" id="testChatSendBtn">🚀 发送测试</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const resultBox = modal.querySelector('#testChatResult');
+    const sendBtn = modal.querySelector('#testChatSendBtn');
+
+    const renderResult = (html, kind = 'info') => {
+        resultBox.className = `test-chat-result ${kind}`;
+        resultBox.innerHTML = html;
+    };
+
+    modal.querySelector('#testChatCloseBtn').onclick = () => modal.remove();
+
+    sendBtn.onclick = async () => {
+        const model = modal.querySelector('#testChatModel').value.trim() || 'gemini-3.8-flash';
+        const message = modal.querySelector('#testChatMessage').value.trim();
+
+        if (!message) {
+            showToast('请输入测试内容', 'warning');
+            return;
+        }
+
+        sendBtn.disabled = true;
+        sendBtn.textContent = '⏳ 测试中...';
+        renderResult('正在调用上游，请稍候…', 'pending');
+
+        try {
+            const response = await authFetch(`/admin/tokens/${encodeURIComponent(tokenId)}/test-chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message, model })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                const d = data.data;
+                const usage = d.usage
+                    ? `输入 ${d.usage.prompt_tokens || 0} / 输出 ${d.usage.completion_tokens || 0} / 合计 ${d.usage.total_tokens || 0}`
+                    : '未返回用量';
+                renderResult(`
+                    <div class="test-chat-ok-title">✅ 测试通过，账号可正常使用</div>
+                    <div class="test-chat-meta">模型：<code>${escapeHtml(d.model)}</code> · 耗时：<b>${d.latencyMs} ms</b> · Tokens：${escapeHtml(usage)}</div>
+                    <div class="test-chat-reply-label">模型回复：</div>
+                    <pre class="test-chat-reply">${escapeHtml(d.reply || '（空回复）')}</pre>
+                `, 'ok');
+                showToast(`测试通过（${d.latencyMs}ms）`, 'success');
+                // 测试成功会消耗额度，刷新列表以更新用量
+                skipAnimation = true;
+                loadTokens();
+            } else if (data.riskDetected) {
+                renderResult(`
+                    <div class="test-chat-risk-title">🚫 ${escapeHtml(data.riskLabel || '账号风控')}</div>
+                    <div class="test-chat-meta">${escapeHtml(data.message || '')}</div>
+                    ${data.validationUrl ? `<div class="test-chat-meta">验证链接：<a class="risk-link" href="${escapeHtml(data.validationUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(data.validationUrl)}</a></div>` : ''}
+                    ${data.appealUrl ? `<div class="test-chat-meta">申诉入口：<a class="risk-link" href="${escapeHtml(data.appealUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(data.appealUrl)}</a></div>` : ''}
+                `, 'risk');
+                showToast('检测到账号风控，已自动禁用', 'error');
+                skipAnimation = true;
+                loadTokens();
+            } else {
+                renderResult(`
+                    <div class="test-chat-fail-title">❌ 测试失败</div>
+                    <pre class="test-chat-reply">${escapeHtml(data.message || '未知错误')}</pre>
+                `, 'fail');
+                showToast('测试失败', 'error');
+            }
+        } catch (error) {
+            renderResult(`<div class="test-chat-fail-title">❌ 请求异常</div><pre class="test-chat-reply">${escapeHtml(error.message)}</pre>`, 'fail');
+            showToast('测试请求异常', 'error');
+        } finally {
+            sendBtn.disabled = false;
+            sendBtn.textContent = '🚀 发送测试';
+        }
+    };
 }
 
 // ==================== 账号风控（风险状态）提示 ====================

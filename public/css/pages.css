@@ -471,6 +471,95 @@ button.loading::after {
     transform: none;
 }
 
+/* ==================== 对话测试弹窗 ==================== */
+.token-chat-test-btn {
+    /* 与刷新按钮同排，保持视觉一致 */
+}
+
+.test-chat-account {
+    font-size: 0.85rem;
+    color: var(--text-light, #666);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px dashed var(--border, #e2e8f0);
+}
+
+.test-chat-warn {
+    color: #d97706;
+    font-size: 0.78rem;
+}
+
+.test-chat-result {
+    margin: 0.75rem 0;
+    padding: 0.75rem 0.9rem;
+    border-radius: 0.5rem;
+    font-size: 0.85rem;
+    border: 1.5px solid var(--border, #e2e8f0);
+    background: var(--bg-body, #f8fafc);
+}
+
+.test-chat-result.pending {
+    color: var(--text-light, #666);
+}
+
+.test-chat-result.ok {
+    border-color: rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.test-chat-result.risk {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.test-chat-result.fail {
+    border-color: rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.test-chat-ok-title {
+    color: #047857;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+
+.test-chat-fail-title {
+    color: #b45309;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+
+.test-chat-risk-title {
+    color: #b91c1c;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+
+.test-chat-meta {
+    color: var(--text-light, #666);
+    font-size: 0.8rem;
+    margin-bottom: 0.3rem;
+    word-break: break-all;
+}
+
+.test-chat-reply-label {
+    font-size: 0.8rem;
+    color: var(--text-light, #666);
+    margin-top: 0.5rem;
+}
+
+.test-chat-reply {
+    margin-top: 0.25rem;
+    padding: 0.6rem 0.75rem;
+    background: rgba(15, 23, 42, 0.05);
+    border-radius: 0.4rem;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 220px;
+    overflow: auto;
+}
+
 /* ==================== 账号风控告警（要求验证 / 违规封禁） ==================== */
 .token-risk-banner {
     display: flex;

@@ -18,7 +18,10 @@ import memoryManager from '../utils/memoryManager.js';
 import { parseEnvFile, updateEnvFile } from '../utils/envParser.js';
 import { reloadConfig } from '../utils/configReloader.js';
 import { deepMerge } from '../utils/deepMerge.js';
-import { getModelsWithQuotas } from '../api/client.js';
+import { getModelsWithQuotas, generateAssistantResponseNoStream } from '../api/client.js';
+import { readUpstreamErrorBody } from '../api/upstreamError.js';
+import { generateRequestBody } from '../utils/utils.js';
+import { detectAccountRisk, isAccountRisk, getRiskLabel } from '../utils/accountRiskDetector.js';
 import { getEnvPath } from '../utils/paths.js';
 import ipBlockManager from '../utils/ipBlockManager.js';
 import apiKeyManager from '../auth/api_key_manager.js';
@@ -415,6 +418,81 @@ router.put('/tokens/:tokenId', cookieAuthMiddleware, async (req, res) => {
   } catch (error) {
     logger.error('更新Token失败:', error.message);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 后台直接对话测试：使用指定 Token 真实调用上游，验证账号能否正常使用
+// 失败时联动风控识别：命中 VALIDATION_REQUIRED / TOS_VIOLATION 会自动禁用该账号
+router.post('/tokens/:tokenId/test-chat', cookieAuthMiddleware, async (req, res) => {
+  const { tokenId } = req.params;
+  const { message, model = 'gemini-3.8-flash' } = req.body || {};
+
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ success: false, message: '请输入测试内容' });
+  }
+
+  let token = null;
+  try {
+    token = await tokenManager.findTokenById(tokenId);
+    if (!token) {
+      return res.status(404).json({ success: false, message: '未找到该 Token' });
+    }
+
+    // Token 过期则先刷新，避免把「过期」误判成「不可用」
+    if (tokenManager.isExpired(token)) {
+      try {
+        await tokenManager.refreshToken(token, true);
+      } catch (refreshError) {
+        return res.json({
+          success: false,
+          message: `Token 已过期且刷新失败：${refreshError.message}`
+        });
+      }
+    }
+
+    const messages = [{ role: 'user', content: message.trim() }];
+    const requestBody = generateRequestBody(messages, model, {}, null, token);
+    const startedAt = Date.now();
+
+    const result = await generateAssistantResponseNoStream(requestBody, token);
+    const latencyMs = Date.now() - startedAt;
+
+    res.json({
+      success: true,
+      data: {
+        account: token.email || token.projectId || tokenId.substring(0, 10),
+        model,
+        reply: result?.content || '',
+        reasoning: result?.reasoningContent || null,
+        usage: result?.usage || null,
+        latencyMs
+      }
+    });
+  } catch (error) {
+    // 失败时做风控识别（与线上请求同一套判定算法）
+    try {
+      const errorBody = await readUpstreamErrorBody(error);
+      const status = error?.response?.status || error?.status || error?.statusCode || 500;
+      const risk = detectAccountRisk(errorBody, status);
+
+      if (token && isAccountRisk(risk.kind)) {
+        await tokenManager.markTokenRisk(token, risk);
+        logger.warn(`[测试对话] 账号 [${token.email || tokenId}] 命中${getRiskLabel(risk.kind)}，已自动禁用`);
+        return res.json({
+          success: false,
+          riskDetected: true,
+          riskKind: risk.kind,
+          riskLabel: getRiskLabel(risk.kind),
+          message: `该账号已被${getRiskLabel(risk.kind)}，已自动禁用`,
+          validationUrl: risk.validationUrl,
+          appealUrl: risk.appealUrl
+        });
+      }
+
+      res.json({ success: false, message: error?.message || String(error) });
+    } catch (detectError) {
+      res.json({ success: false, message: error?.message || String(error) });
+    }
   }
 });
 
