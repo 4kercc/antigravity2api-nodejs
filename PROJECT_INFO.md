@@ -175,9 +175,19 @@ antigravity2api/
 - **问题背景**：用户遇到 `生成响应失败: API请求失败 (400): {"error":{"code":400,"message":"The input token count exceeds the maximum number of tokens allowed 1048576.","status":"INVALID_ARGUMENT"}}`。这是**上下文长度问题，不是账号/额度问题**：`1048576` 即 2²⁰，是模型单次请求的**输入上限**（用户日志中已有请求达到 `In 613797` 量级，接近该上限）。原样抛出英文报错容易让人误判为账号失效或额度耗尽。
 - **新增模块 `src/utils/inputTokenGuard.js`**（纯函数、无副作用，可单测）：
   - `estimateTextTokens` / `estimateInputTokens`：启发式估算输入 token——CJK 字符 ≈ 1 token/字符，其他字符 ≈ 1 token/4 字符，内联 base64 图片按固定估值（默认 1300，可通过 `imageTokenEstimate` 配置）计，避免按 base64 长度爆炸式高估；带循环引用防护与深度上限；
+  - **思考签名（thoughtSignature / signature 等）不计入估算**——见下方实测结论，这是避免误拦截的关键；
+  - 返回占用最大的 5 个估算来源（`path` / `kind` / `chars` / `tokens`，**不含内容**），拦截时写入日志，便于判断是否误判；
   - `isInputTokenLimitError` / `parseUpstreamInputLimit`：识别上游超限报文并解析真实上限（如 `allowed 1048576`），兼容 Google / OpenAI 两种措辞；
   - `buildInputTokenLimitMessage`：生成中文可读提示（含上限、本次估算值与处理建议）；
   - `assertInputTokensWithinLimit`：请求发出前的预检守卫，超限抛 `InputTokenLimitError`。
+- **实测标定（在线上服务上真实打点，用于校正估算因子）**：
+  | 实验 | 上游返回 prompt_tokens | 结论 |
+  | --- | --- | --- |
+  | 中文 4 字 → 中文 4004 字 | 281 → 4281 | 中文 ≈ **1 token/字符**（原因子正确） |
+  | 英文 4 字符 → 4004 字符 | 278 → 778 | 重复字符 ≈ 8 字符/token（真实散文约 4 字符/token，保留 /4 偏保守） |
+  | 回传 **1244 字符真实 thoughtSignature** | 280 → **288**（仅 +8，即新增文本本身） | **签名不计入输入 token**；而线上单个签名可达 12.6 万字符，若不排除会让估算虚高约 3 万 token/个 |
+  | base64 4004 字符 | 278 → 2629 | base64 ≈ 1.7 字符/token |
+  结论直接改掉了两个会造成**误拦截**的设计：签名不再计入；并新增 `safetyRatio`（默认 0.15，即估算值需超过上限 15% 才拦截）吸收启发式高估偏差。
 - **新增错误类型 `InputTokenLimitError`**（`src/utils/errors.js`）：HTTP 400，对外返回 OpenAI 规范 `type: invalid_request_error` / `code: context_length_exceeded`，便于 Cline / Roo 等客户端识别后自动裁剪上下文。
 - **接入点**：
   - `src/api/client.js` 三个入口（流式 `generateAssistantResponse`、非流式 `generateAssistantResponseNoStream`、图片 `generateImageForSD`）在发请求前调用 `precheckInputTokens()`，**明显超限直接拦截**（不再浪费一次注定失败的上游请求与账号额度），达到上限 90% 时记录「接近上限」告警；
@@ -185,10 +195,13 @@ antigravity2api/
   - `src/server/handlers/common/externalChannelError.js`：外部渠道 502 分支统一提取上游 `error.message`，超限时同样转中文提示（同时解决了原先只暴露 axios「Request failed with status code 400」泛化文案的问题）。
 - **配置项 `inputTokenGuard`**（`config.json`，默认开启；`config.json.example` 已同步）：
   ```json
-  "inputTokenGuard": { "enabled": true, "limit": 1048576, "warnRatio": 0.9, "imageTokenEstimate": 1300 }
+  "inputTokenGuard": { "enabled": true, "limit": 1048576, "warnRatio": 0.9, "safetyRatio": 0.15, "imageTokenEstimate": 1300 }
   ```
   环境变量覆盖：`INPUT_TOKEN_GUARD=0` 关闭预检、`INPUT_TOKEN_LIMIT=<n>` 改上限。
-- **验证**：`node scripts/test-input-token-guard.mjs` —— 44 条用例全部通过（文本/图片估算、循环引用、真实超限报文识别、误判防护、预检拦截与放行边界、错误响应格式、外部渠道错误描述）；另实测 `config.inputTokenGuard` 正确加载、client 与三个 handler 模块导入图正常。
+- **验证**：
+  - `node scripts/test-input-token-guard.mjs` —— 62 条用例全部通过（文本/图片/签名估算、循环引用、data URL 识别、真实超限报文识别、误判防护、预检拦截与放行边界、安全余量、错误响应格式、外部渠道错误描述）；
+  - 线上端到端实测：正常小请求 `HTTP 200`；440 万字符超限请求 `HTTP 400` 且 0.09 秒返回中文提示（未打上游），响应体为 `{"error":{"message":"请求已被提前拦截：…","type":"invalid_request_error","code":"context_length_exceeded"}}`；
+  - 部署后复核线上真实流量：排除签名后，原先被误拦截的「估算 107.7 万」类请求已恢复正常，仍超限的超大请求继续被拦截。
 - **未做（保留给客户端/按需）**：自动裁剪最老消息以塞进上限的行为**默认不开启**——静默改动用户上下文有语义风险，建议由客户端新建会话处理。
 
 ---

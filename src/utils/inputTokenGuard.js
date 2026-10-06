@@ -30,6 +30,25 @@ const BASE64_BLOB_MIN_LENGTH = 256;
 /** 视为内联图片数据的键名（不区分大小写） */
 const IMAGE_DATA_KEYS = new Set(['data', 'base64', 'imagedata', 'imagedataurl']);
 
+/**
+ * 思考签名类字段：上游不计入输入 token（实测验证）
+ *
+ * 实测：在请求中回传一个 1244 字符的真实 thoughtSignature，
+ * 上游返回的 prompt_tokens 只增加 8（即新增文本本身），签名本身不计入。
+ * 而线上真实签名单个可达 12.6 万字符，若不排除会让估算值虚高数万 token/个，
+ * 造成「明明没超限却被提前拦截」的误判。
+ */
+const SIGNATURE_KEYS = new Set([
+  'thoughtsignature',
+  'signature',
+  'reasoningsignature',
+  'toolsignature',
+  'thinkingsignature'
+]);
+
+/** 默认安全余量：估算值超过上限的 (1 + safetyRatio) 倍才拦截，避免启发式高估误伤 */
+const DEFAULT_SAFETY_RATIO = 0.15;
+
 /** 递归遍历深度上限，防御异常深的对象 */
 const MAX_WALK_DEPTH = 32;
 
@@ -115,9 +134,17 @@ export function estimateInputTokens(payload, options = {}) {
 
     for (const [key, value] of Object.entries(node)) {
       if (value === null || value === undefined) continue;
+      const lowerKey = key.toLowerCase();
       const childPath = path ? `${path}.${key}` : key;
+
+      // 思考签名：上游不计入输入 token，仅记录长度用于排障
+      if (typeof value === 'string' && SIGNATURE_KEYS.has(lowerKey)) {
+        record(childPath, value.length, 0, 'signature');
+        continue;
+      }
+
       if (typeof value === 'string'
-        && IMAGE_DATA_KEYS.has(key.toLowerCase())
+        && IMAGE_DATA_KEYS.has(lowerKey)
         && value.length >= BASE64_BLOB_MIN_LENGTH) {
         images += 1;
         tokens += imageTokenEstimate;
@@ -216,7 +243,7 @@ export function buildInputTokenLimitMessage(options = {}) {
  *
  * 明显超限时抛出 InputTokenLimitError（400），否则返回估算结果。
  * @param {any} payload - 即将发送给上游的完整请求体
- * @param {{ enabled?: boolean, limit?: number, warnRatio?: number, imageTokenEstimate?: number }} [options]
+ * @param {{ enabled?: boolean, limit?: number, warnRatio?: number, safetyRatio?: number, imageTokenEstimate?: number }} [options]
  * @returns {{ tokens: number, images: number, limit: number, nearLimit: boolean }|null}
  */
 export function assertInputTokensWithinLimit(payload, options = {}) {
@@ -226,10 +253,14 @@ export function assertInputTokensWithinLimit(payload, options = {}) {
   const warnRatio = Number(options?.warnRatio) > 0 && Number(options.warnRatio) < 1
     ? Number(options.warnRatio)
     : DEFAULT_WARN_RATIO;
+  const safetyRatio = Number(options?.safetyRatio) >= 0 && Number(options.safetyRatio) < 10
+    ? Number(options.safetyRatio)
+    : DEFAULT_SAFETY_RATIO;
+  const threshold = limit * (1 + safetyRatio);
 
   const { tokens, images, top } = estimateInputTokens(payload, options);
 
-  if (tokens > limit) {
+  if (tokens > threshold) {
     const error = new InputTokenLimitError(
       buildInputTokenLimitMessage({ estimatedTokens: tokens, limit, precheck: true }),
       { estimatedTokens: tokens, limit, precheck: true }

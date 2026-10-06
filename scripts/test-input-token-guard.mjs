@@ -93,6 +93,44 @@ t('返回占用最大的估算来源', estDataUrl.top.length >= 3 && estDataUrl.
 t('估算来源带字段路径', estDataUrl.top.some(item => item.path.includes('url')), JSON.stringify(estDataUrl.top.map(i => i.path)));
 t('估算来源不含原始内容', estDataUrl.top.every(item => Object.keys(item).sort().join(',') === 'chars,kind,path,tokens'));
 
+// ============ 2.1 思考签名不计入输入 token（实测结论） ============
+// 实测：回传 1244 字符的真实 thoughtSignature，上游 prompt_tokens 只增加 8（新增文本本身）
+const sigBody = {
+  request: {
+    contents: [{
+      parts: [
+        { thoughtSignature: 'A'.repeat(126216), text: 'a'.repeat(400) }
+      ]
+    }]
+  }
+};
+const estSig = estimateInputTokens(sigBody);
+t('thoughtSignature 不计入 token', estSig.tokens === 100, JSON.stringify({ tokens: estSig.tokens }));
+t('签名被单独归类为 signature', estSig.top.some(i => i.kind === 'signature' && i.chars === 126216), JSON.stringify(estSig.top));
+t('签名仍会出现在估算来源中（便于排障）', estSig.top.some(i => i.path.includes('thoughtSignature')));
+
+const sigVariants = { a: { signature: 'A'.repeat(5000) }, b: { reasoningSignature: 'A'.repeat(5000) }, c: { toolSignature: 'A'.repeat(5000) } };
+t('各种签名字段都不计入', estimateInputTokens(sigVariants).tokens === 0, String(estimateInputTokens(sigVariants).tokens));
+
+// 线上真实场景：8 个 12.6 万字符签名（不计入）+ 8 段 7.5 万字符正文（=15 万 token）
+const liveLikeBody = {
+  request: {
+    contents: Array.from({ length: 8 }, () => ({ parts: [{ thoughtSignature: 'A'.repeat(126216), text: 'a'.repeat(75000) }] }))
+  }
+};
+const liveLikeInfo = assertInputTokensWithinLimit(liveLikeBody, { limit: DEFAULT_INPUT_TOKEN_LIMIT });
+t('签名-heavy 的真实会话不会被误拦截', liveLikeInfo && liveLikeInfo.tokens === 150000, JSON.stringify(liveLikeInfo && liveLikeInfo.tokens));
+t('签名-heavy 会话不触发 nearLimit', liveLikeInfo.nearLimit === false);
+
+// 8 个签名 + 8 段 70 万字符正文（=140 万 token，超过上限 15% 余量）仍应拦截
+let sigHeavyThrown = null;
+try {
+  assertInputTokensWithinLimit({
+    request: { contents: Array.from({ length: 8 }, () => ({ parts: [{ thoughtSignature: 'A'.repeat(126216), text: 'a'.repeat(700000) }] })) }
+  }, { limit: DEFAULT_INPUT_TOKEN_LIMIT });
+} catch (e) { sigHeavyThrown = e; }
+t('签名排除后正文仍超限则照常拦截', sigHeavyThrown instanceof InputTokenLimitError, sigHeavyThrown && sigHeavyThrown.message);
+
 // ============ 3. 超限报文识别 ============
 const realUpstreamBody = JSON.stringify({
   error: {
@@ -147,12 +185,23 @@ t('达到 90% 上限时标记 nearLimit', nearInfo && nearInfo.nearLimit === tru
 const bigInfo = assertInputTokensWithinLimit(bodyOf(613797 * 4), { limit: DEFAULT_INPUT_TOKEN_LIMIT });
 t('约 61.4 万 token 的历史会话可放行', bigInfo && bigInfo.tokens === 613797 && bigInfo.nearLimit === false, JSON.stringify(bigInfo));
 
-// 约 107 万 token（超过 1M 上限）应被拦截
+// 超过 1M 上限且超出安全余量（默认 15%）应被拦截
 let overThrown = null;
 try {
-  assertInputTokensWithinLimit(bodyOf(1073741 * 4), { limit: DEFAULT_INPUT_TOKEN_LIMIT });
+  assertInputTokensWithinLimit(bodyOf(1250000 * 4), { limit: DEFAULT_INPUT_TOKEN_LIMIT });
 } catch (e) { overThrown = e; }
 t('超过 1M 上限的请求被拦截', overThrown instanceof InputTokenLimitError, overThrown && overThrown.message);
+
+// ============ 5.1 安全余量（避免启发式高估误伤） ============
+const slightOver = bodyOf(1100000 * 4); // 估算 110 万，略高于 104.9 万上限
+t('略超上限（+5%）默认放行，交给上游判定', assertInputTokensWithinLimit(slightOver, { limit: DEFAULT_INPUT_TOKEN_LIMIT }) !== null);
+let strictThrown = null;
+try {
+  assertInputTokensWithinLimit(slightOver, { limit: DEFAULT_INPUT_TOKEN_LIMIT, safetyRatio: 0 });
+} catch (e) { strictThrown = e; }
+t('safetyRatio=0 时略超上限即拦截', strictThrown instanceof InputTokenLimitError);
+const customRatio = assertInputTokensWithinLimit(bodyOf(1100000 * 4), { limit: DEFAULT_INPUT_TOKEN_LIMIT, safetyRatio: 0.5 });
+t('safetyRatio 可调大（0.5 → 120 万以内放行）', customRatio !== null, JSON.stringify(customRatio && customRatio.tokens));
 
 // ============ 6. 对外错误响应格式 ============
 const payload = buildOpenAIErrorPayload(thrown, 400);

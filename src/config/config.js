@@ -488,6 +488,10 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
         || DEFAULT_INPUT_TOKEN_LIMIT,
       // 达到上限多少比例时记录「接近上限」告警日志（默认 0.9）
       warnRatio: getRatio(jsonConfig.inputTokenGuard?.warnRatio) || 0.9,
+      // 安全余量：估算值需超过上限的 (1 + safetyRatio) 倍才提前拦截（默认 0.15，避免启发式高估误伤）
+      safetyRatio: Number(jsonConfig.inputTokenGuard?.safetyRatio) >= 0
+        ? Number(jsonConfig.inputTokenGuard.safetyRatio)
+        : 0.15,
       // 单张内联图片的 token 估算值（默认 1300）
       imageTokenEstimate: getPositiveNumber(jsonConfig.inputTokenGuard?.imageTokenEstimate) || 1300
     },
