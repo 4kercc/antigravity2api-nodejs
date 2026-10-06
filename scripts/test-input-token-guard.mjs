@@ -10,6 +10,7 @@ import {
   buildInputTokenLimitMessage,
   formatTokenCount,
   assertInputTokensWithinLimit,
+  isInlineImageValue,
   DEFAULT_INPUT_TOKEN_LIMIT
 } from '../src/utils/inputTokenGuard.js';
 import { InputTokenLimitError, buildOpenAIErrorPayload } from '../src/utils/errors.js';
@@ -69,6 +70,28 @@ const cyclic = { text: 'hello' };
 cyclic.self = cyclic;
 const estCyclic = estimateInputTokens(cyclic);
 t('循环引用安全处理', estCyclic.tokens === estimateTextTokens('hello'), JSON.stringify(estCyclic));
+
+// OpenAI 视觉格式：data URL 图片不应按 base64 长度高估
+const dataUrlBody = {
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,' + 'A'.repeat(400000) } },
+      { type: 'text', text: 'a'.repeat(400) }
+    ]
+  }]
+};
+const estDataUrl = estimateInputTokens(dataUrlBody);
+t('data URL 图片识别为图片', estDataUrl.images === 1, JSON.stringify(estDataUrl));
+t('data URL 图片不按 base64 长度高估', estDataUrl.tokens < 2000, String(estDataUrl.tokens));
+t('isInlineImageValue 识别 data URL', isInlineImageValue('data:image/jpeg;base64,' + 'A'.repeat(1000)) === true);
+t('isInlineImageValue 不误判普通长文本', isInlineImageValue('a'.repeat(2000)) === false);
+t('isInlineImageValue 忽略短字符串', isInlineImageValue('data:image/png;base64,AAA') === false);
+
+// 估算来源分解（用于排障，不含内容）
+t('返回占用最大的估算来源', estDataUrl.top.length >= 3 && estDataUrl.top[0].kind === 'image', JSON.stringify(estDataUrl.top));
+t('估算来源带字段路径', estDataUrl.top.some(item => item.path.includes('url')), JSON.stringify(estDataUrl.top.map(i => i.path)));
+t('估算来源不含原始内容', estDataUrl.top.every(item => Object.keys(item).sort().join(',') === 'chars,kind,path,tokens'));
 
 // ============ 3. 超限报文识别 ============
 const realUpstreamBody = JSON.stringify({

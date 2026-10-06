@@ -303,6 +303,12 @@ function precheckInputTokens(requestBody) {
     return info;
   } catch (error) {
     logger.warn(`⛔ [输入超限预检] ${error.message}`);
+    // 打印估算值的主要来源（仅路径/长度/估算值，不含内容），便于判断是否误判
+    if (Array.isArray(error.topContributors)) {
+      for (const item of error.topContributors) {
+        logger.warn(`   ↳ 估算来源 ${item.path} | ${item.kind} | ${item.chars} 字符 ≈ ${item.tokens} token`);
+      }
+    }
     throw error;
   }
 }

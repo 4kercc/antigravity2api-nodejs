@@ -38,6 +38,20 @@ const DEFAULT_WARN_RATIO = 0.9;
 
 const CJK_CHAR_RE = /[\u2e80-\u2eff\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/g;
 
+/** data URL 形式的图片（OpenAI 视觉接口常见：data:image/png;base64,xxxx） */
+const DATA_URL_IMAGE_RE = /^data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,/i;
+
+/**
+ * 判断字符串是否为内联图片数据
+ * 只认明确的信号（data URL 前缀），避免把普通长文本误判成图片
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function isInlineImageValue(value) {
+  if (typeof value !== 'string' || value.length < BASE64_BLOB_MIN_LENGTH) return false;
+  return DATA_URL_IMAGE_RE.test(value);
+}
+
 /**
  * 估算一段文本的 token 数
  * @param {string} text
@@ -65,13 +79,28 @@ export function estimateInputTokens(payload, options = {}) {
   let tokens = 0;
   let images = 0;
   const visited = new WeakSet();
+  const contributions = [];
 
-  const walk = (node, depth) => {
+  const record = (path, chars, valueTokens, kind) => {
+    contributions.push({ path, chars, tokens: valueTokens, kind });
+  };
+
+  const walk = (node, depth, path) => {
     if (node === null || node === undefined || depth > MAX_WALK_DEPTH) return;
 
     const type = typeof node;
     if (type === 'string') {
-      tokens += estimateTextTokens(node);
+      // 内联图片（OpenAI 的 data URL / 直接 base64 数据）：按固定估值计，
+      // 否则上百万字符的 base64 会被当成文本严重高估
+      if (isInlineImageValue(node)) {
+        images += 1;
+        tokens += imageTokenEstimate;
+        record(path, node.length, imageTokenEstimate, 'image');
+        return;
+      }
+      const valueTokens = estimateTextTokens(node);
+      tokens += valueTokens;
+      record(path, node.length, valueTokens, 'text');
       return;
     }
     if (type !== 'object') return;
@@ -80,25 +109,32 @@ export function estimateInputTokens(payload, options = {}) {
     visited.add(node);
 
     if (Array.isArray(node)) {
-      for (const item of node) walk(item, depth + 1);
+      for (let i = 0; i < node.length; i += 1) walk(node[i], depth + 1, `${path}[${i}]`);
       return;
     }
 
     for (const [key, value] of Object.entries(node)) {
       if (value === null || value === undefined) continue;
+      const childPath = path ? `${path}.${key}` : key;
       if (typeof value === 'string'
         && IMAGE_DATA_KEYS.has(key.toLowerCase())
         && value.length >= BASE64_BLOB_MIN_LENGTH) {
         images += 1;
         tokens += imageTokenEstimate;
+        record(childPath, value.length, imageTokenEstimate, 'image');
         continue;
       }
-      walk(value, depth + 1);
+      walk(value, depth + 1, childPath);
     }
   };
 
-  walk(payload, 0);
-  return { tokens, images };
+  walk(payload, 0, '');
+
+  // 只保留占用最大的若干项，用于排障时说明「估算值从哪来」（不含内容，避免泄露对话）
+  contributions.sort((a, b) => b.tokens - a.tokens);
+  const top = contributions.slice(0, 5).map(c => ({ ...c, path: c.path || '(root)' }));
+
+  return { tokens, images, top };
 }
 
 function stringifyErrorBody(errorBody) {
@@ -191,14 +227,16 @@ export function assertInputTokensWithinLimit(payload, options = {}) {
     ? Number(options.warnRatio)
     : DEFAULT_WARN_RATIO;
 
-  const { tokens, images } = estimateInputTokens(payload, options);
+  const { tokens, images, top } = estimateInputTokens(payload, options);
 
   if (tokens > limit) {
-    throw new InputTokenLimitError(
+    const error = new InputTokenLimitError(
       buildInputTokenLimitMessage({ estimatedTokens: tokens, limit, precheck: true }),
       { estimatedTokens: tokens, limit, precheck: true }
     );
+    error.topContributors = top;
+    throw error;
   }
 
-  return { tokens, images, limit, nearLimit: tokens >= limit * warnRatio };
+  return { tokens, images, limit, nearLimit: tokens >= limit * warnRatio, top };
 }
