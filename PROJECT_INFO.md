@@ -198,3 +198,17 @@ git push origin dev
 ```bash
 ssh -p <PORT> <USER>@<HOST> "cd /path/to/antigravity2api && git pull origin dev && pm2 restart all"
 ```
+
+### 4. 日志管理与排障（重要）
+- **PM2 日志轮转（已配置）**：PM2 捕获的 `~/.pm2/logs/antigravity2api-out.log` **不受应用自身轮转控制**，曾一度增长到 **1.3 GB**（磁盘占用 86%）。现已安装并配置 `pm2-logrotate`：
+  ```bash
+  pm2 install pm2-logrotate
+  pm2 set pm2-logrotate:max_size 50M     # 单文件上限
+  pm2 set pm2-logrotate:retain 2         # 保留 2 份历史
+  pm2 set pm2-logrotate:compress true    # 压缩历史文件
+  pm2 set pm2-logrotate:workerInterval 60
+  pm2 set pm2-logrotate:rotateInterval '0 0 * * *'
+  ```
+  手动清空当前应用日志：`pm2 flush antigravity2api`；应用自身日志位于 `data/logs/app.log`（按 `config.json` 的 `log.maxSizeMB / maxFiles` 轮转）。
+- **调试请求体 dump 开关**：`openai.js` 失败时打印「完整 requestBody / 客户端原始 req.body」的行为现已**默认关闭**，仅在设置环境变量 `DEBUG_DUMP_REQUEST_RESPONSE=1` 后开启。原因：该 dump 会把客户端对话内容与超长工具定义写入日志，是日志体积膨胀的主要来源（单文件曾出现 769 处 dump）。
+- **优雅关闭超时**：应用收到 SIGINT 后的清理耗时可能超过 PM2 默认 1.6 秒宽限而被 SIGKILL，导致在途请求中断（日志表现为 `[upstream-fallback] ... Process exited with code null`）。如需彻底避免，可调大 PM2 的 `kill_timeout`。
