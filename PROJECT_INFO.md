@@ -163,6 +163,14 @@ antigravity2api/
 - **参数自适应安全钳制**：自动将超上限的 `max_tokens`（如 `128000`）钳制在 Google API 允许的安全阈值 `64000`；
 - **高级 JSON Schema 深度清洗**：展开 `anyOf` / `oneOf` 联合类型，剥离 `format`、`default`、`annotations` 等 Google 禁用字段，彻底解决复杂 MCP 工具调用时的 400 校验拒绝问题。
 
+### 14. 后台「对话测试」（验证 Token 能否正常使用）
+- **需求背景**：之前判断账号是否可用只能靠额度数字或等到真实请求失败，缺少一个「立刻验证这个账号到底能不能用」的手段。
+- **实现**：
+  - 后端新增 `POST /admin/tokens/:tokenId/test-chat`（`{ message, model }`）：取指定 Token（过期先自动刷新），用 `generateRequestBody` + `generateAssistantResponseNoStream` **真实调用上游**，返回模型回复、耗时与 Token 用量；
+  - **与风控识别联动**：测试失败时对上游错误跑同一套 `detectAccountRisk`，命中 `VALIDATION_REQUIRED` / `TOS_VIOLATION` 时返回 `riskDetected` 并**自动禁用该账号**——这也是一个「按需探测」，无需等待定时同步；
+  - 前端 Token 卡片头部新增 **💬 按钮**，弹窗内可选模型（预置常见模型 datalist）、输入测试内容，结果区以绿/黄/红三色区分「测试通过 / 普通失败 / 命中风控」，风控结果附带可点击的验证与申诉链接；测试成功会刷新列表以更新用量。
+- **验证**：接口实测健康账号返回 `✅ 测试通过 | 耗时 4117ms | 回复"正常" | 286/1/533 tokens`；真实浏览器端到端 8 项检查全部通过（按钮存在、弹窗控件、默认模型、发送后展示回复与耗时用量、无 JS 错误）。
+
 ---
 
 ## 🔧 四、 运维与常用命令
