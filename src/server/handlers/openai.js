@@ -290,13 +290,17 @@ export const handleOpenAIRequest = async (req, res) => {
           endStream(res);
         }
         logger.error('生成响应失败:', error.message);
-        if (requestBody) {
-          logger.error('【400 Debug】失败时发送给 Google 的完整 requestBody:');
-          logger.error(JSON.stringify(requestBody, null, 2));
-        }
-        if (body) {
-          logger.error('【400 Debug】客户端原始传入的 req.body:');
-          logger.error(JSON.stringify(body, null, 2));
+        // 仅在显式开启调试（DEBUG_DUMP_REQUEST_RESPONSE=1）时才 dump 完整请求体，
+        // 避免日志体积膨胀以及把客户端对话内容写入日志
+        if (config.debugDumpRequestResponse) {
+          if (requestBody) {
+            logger.error('【400 Debug】失败时发送给 Google 的完整 requestBody:');
+            logger.error(JSON.stringify(requestBody, null, 2));
+          }
+          if (body) {
+            logger.error('【400 Debug】客户端原始传入的 req.body:');
+            logger.error(JSON.stringify(body, null, 2));
+          }
         }
         return;
       }
@@ -418,13 +422,16 @@ export const handleOpenAIRequest = async (req, res) => {
     }
   } catch (error) {
     logger.error('生成响应失败:', error.message);
-    if (requestBody) {
-      logger.error('【400 Debug】失败时发送给 Google 的完整 requestBody:');
-      logger.error(JSON.stringify(requestBody, null, 2));
-    }
-    if (body) {
-      logger.error('【400 Debug】客户端原始传入的 req.body:');
-      logger.error(JSON.stringify(body, null, 2));
+    // 仅在显式开启调试（DEBUG_DUMP_REQUEST_RESPONSE=1）时才 dump 完整请求体
+    if (config.debugDumpRequestResponse) {
+      if (requestBody) {
+        logger.error('【400 Debug】失败时发送给 Google 的完整 requestBody:');
+        logger.error(JSON.stringify(requestBody, null, 2));
+      }
+      if (body) {
+        logger.error('【400 Debug】客户端原始传入的 req.body:');
+        logger.error(JSON.stringify(body, null, 2));
+      }
     }
     if (res.headersSent) return;
     const statusCode = error.statusCode || error.status || 500;
