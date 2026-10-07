@@ -335,6 +335,15 @@ async function handleApiError(error, token, dumpId = null, context = {}) {
       : (context?.requestBody ? estimateInputTokens(context.requestBody).tokens : null);
     const message = buildInputTokenLimitMessage({ estimatedTokens, limit });
     logger.warn(`⚠️ [输入超限] ${message}`);
+    // 打印上游原始报文与本地估算来源：用于核对「上游真实上限」与「估算是否失真」
+    logger.warn(`⚠️ [输入超限] 上游原始报文(截断 800 字符): ${String(errorStr).slice(0, 800)}`);
+    logger.warn(`⚠️ [输入超限] 命中状态码 ${status} | 模型 ${context?.requestBody?.model || '未知'} | 本地估算 ${estimatedTokens ?? '未知'} token`);
+    if (context?.requestBody) {
+      const { top } = estimateInputTokens(context.requestBody);
+      for (const item of top) {
+        logger.warn(`   ↳ 估算来源 ${item.path} | ${item.kind} | ${item.chars} 字符 ≈ ${item.tokens} token`);
+      }
+    }
     throw new InputTokenLimitError(message, { estimatedTokens, limit });
   }
 
