@@ -488,10 +488,12 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
         || DEFAULT_INPUT_TOKEN_LIMIT,
       // 达到上限多少比例时记录「接近上限」告警日志（默认 0.9）
       warnRatio: getRatio(jsonConfig.inputTokenGuard?.warnRatio) || 0.9,
-      // 安全余量：估算值需超过上限的 (1 + safetyRatio) 倍才提前拦截（默认 0.15，避免启发式高估误伤）
+      // 安全余量：估算值需超过上限的 (1 + safetyRatio) 倍才提前拦截（默认 0.1，避免启发式高估误伤）
       safetyRatio: Number(jsonConfig.inputTokenGuard?.safetyRatio) >= 0
         ? Number(jsonConfig.inputTokenGuard.safetyRatio)
-        : 0.15,
+        : 0.1,
+      // 思考签名（base64 密文）的字符/token 比，实测约 1.7（签名字符数远大于其 token 数）
+      signatureCharsPerToken: getPositiveNumber(jsonConfig.inputTokenGuard?.signatureCharsPerToken) || 1.7,
       // 单张内联图片的 token 估算值（默认 1300）
       imageTokenEstimate: getPositiveNumber(jsonConfig.inputTokenGuard?.imageTokenEstimate) || 1300
     },

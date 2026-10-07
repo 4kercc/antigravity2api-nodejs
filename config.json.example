@@ -35,7 +35,8 @@
     "enabled": true,
     "limit": 1048576,
     "warnRatio": 0.9,
-    "safetyRatio": 0.15,
+    "safetyRatio": 0.1,
+    "signatureCharsPerToken": 1.7,
     "imageTokenEstimate": 1300
   },
   "other": {

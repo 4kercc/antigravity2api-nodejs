@@ -298,7 +298,10 @@ function precheckInputTokens(requestBody) {
   try {
     const info = assertInputTokensWithinLimit(requestBody, config.inputTokenGuard);
     if (info?.nearLimit) {
-      logger.warn(`⚠️ [输入超限预检] 本次输入约 ${info.tokens} token，已接近模型上限 ${info.limit}`);
+      logger.warn(
+        `⚠️ [输入超限预检] 本次输入约 ${info.tokens} token` +
+        `（其中思考签名 ${info.signatureTokens} token / ${info.signatureChars} 字符），已接近模型上限 ${info.limit}`
+      );
     }
     return info;
   } catch (error) {
@@ -330,21 +333,24 @@ async function handleApiError(error, token, dumpId = null, context = {}) {
     const limit = parseUpstreamInputLimit(errorBody)
       || Number(config.inputTokenGuard?.limit)
       || DEFAULT_INPUT_TOKEN_LIMIT;
+    const breakdown = context?.requestBody
+      ? estimateInputTokens(context.requestBody, config.inputTokenGuard)
+      : null;
     const estimatedTokens = Number(context?.estimatedTokens) > 0
       ? Number(context.estimatedTokens)
-      : (context?.requestBody ? estimateInputTokens(context.requestBody).tokens : null);
-    const message = buildInputTokenLimitMessage({ estimatedTokens, limit });
+      : (breakdown ? breakdown.tokens : null);
+    const signatureTokens = breakdown?.signatureTokens || null;
+    const message = buildInputTokenLimitMessage({ estimatedTokens, limit, signatureTokens });
     logger.warn(`⚠️ [输入超限] ${message}`);
     // 打印上游原始报文与本地估算来源：用于核对「上游真实上限」与「估算是否失真」
     logger.warn(`⚠️ [输入超限] 上游原始报文(截断 800 字符): ${String(errorStr).slice(0, 800)}`);
-    logger.warn(`⚠️ [输入超限] 命中状态码 ${status} | 模型 ${context?.requestBody?.model || '未知'} | 本地估算 ${estimatedTokens ?? '未知'} token`);
-    if (context?.requestBody) {
-      const { top } = estimateInputTokens(context.requestBody);
-      for (const item of top) {
+    logger.warn(`⚠️ [输入超限] 命中状态码 ${status} | 模型 ${context?.requestBody?.model || '未知'} | 本地估算 ${estimatedTokens ?? '未知'} token | 其中思考签名 ${signatureTokens ?? 0} token`);
+    if (breakdown) {
+      for (const item of breakdown.top) {
         logger.warn(`   ↳ 估算来源 ${item.path} | ${item.kind} | ${item.chars} 字符 ≈ ${item.tokens} token`);
       }
     }
-    throw new InputTokenLimitError(message, { estimatedTokens, limit });
+    throw new InputTokenLimitError(message, { estimatedTokens, limit, signatureTokens });
   }
 
   // 遇到地区限制/IP不受支持时，自动触发 WARP 重启更换出口 IP

@@ -134,7 +134,7 @@ export class TokenError extends AppError {
 export class InputTokenLimitError extends AppError {
   /**
    * @param {string} message - 面向用户的中文提示
-   * @param {{ estimatedTokens?: number|null, limit?: number|null, precheck?: boolean }} [meta]
+   * @param {{ estimatedTokens?: number|null, limit?: number|null, precheck?: boolean, signatureTokens?: number|null }} [meta]
    */
   constructor(message, meta = {}) {
     super(message, 400, 'invalid_request_error');
@@ -144,6 +144,7 @@ export class InputTokenLimitError extends AppError {
     this.estimatedTokens = meta.estimatedTokens ?? null;
     this.limit = meta.limit ?? null;
     this.precheck = meta.precheck === true;
+    this.signatureTokens = meta.signatureTokens ?? null;
   }
 }
 

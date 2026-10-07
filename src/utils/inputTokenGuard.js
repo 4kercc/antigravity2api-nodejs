@@ -8,8 +8,8 @@
  * 本地无法精确分词（与上游 tokenizer 存在差异），因此这里使用启发式估算：
  *   - CJK 字符（中/日/韩）≈ 1 token / 字符（实测：4000 个中文 → 4000 token）
  *   - 其他字符 ≈ 1 token / 4 字符（偏保守；实测连续重复字符约 8 字符/token）
+ *   - 思考签名（base64 密文）≈ 1 token / 1.7 字符（实测；且**计入**输入 token）
  *   - 内联 base64 图片 ≈ 固定估值（若按 base64 长度换算会严重高估）
- *   - 思考签名（thoughtSignature 等）**不计入**（实测签名不占用输入 token）
  *
  * 估算值有两个用途：
  *   1. 请求发出前预检，明显超限时提前拦截（避免无谓的上游请求与账号消耗）
@@ -35,12 +35,17 @@ const BASE64_BLOB_MIN_LENGTH = 256;
 const IMAGE_DATA_KEYS = new Set(['data', 'base64', 'imagedata', 'imagedataurl']);
 
 /**
- * 思考签名类字段：上游不计入输入 token（实测验证）
+ * 思考签名类字段：**计入**输入 token
  *
- * 实测：在请求中回传一个 1244 字符的真实 thoughtSignature，
- * 上游返回的 prompt_tokens 只增加 8（即新增文本本身），签名本身不计入。
- * 而线上真实签名单个可达 12.6 万字符，若不排除会让估算值虚高数万 token/个，
- * 造成「明明没超限却被提前拦截」的误判。
+ * 结论来自线上实测（两次交叉验证）：
+ *  1. 线上失败请求：正文估算仅 12.2 万 token，上游却报「超过 1,048,576」；
+ *     同期同一客户端有请求成功且 `In 1108575`——差值约 98 万 token 正好等于历史
+ *     思考签名的体积（单个 12.6 万字符 × 约 13 个），说明签名被上游计入输入。
+ *  2. 注意：用「通用缓存签名」做的小实验会得出「签名不计入」的错误结论——
+ *     与当前会话无关的签名会被上游忽略；只有真实的会话签名会被回放并计数。
+ *
+ * 签名为 base64 密文，实测约 1.7 字符/token（远低于普通文本的 4 字符/token），
+ * 因此单独使用 signatureCharsPerToken 换算。
  */
 const SIGNATURE_KEYS = new Set([
   'thoughtsignature',
@@ -50,8 +55,11 @@ const SIGNATURE_KEYS = new Set([
   'thinkingsignature'
 ]);
 
+/** 签名（base64 密文）的默认字符/token 比，实测约 1.7 */
+const DEFAULT_SIGNATURE_CHARS_PER_TOKEN = 1.7;
+
 /** 默认安全余量：估算值超过上限的 (1 + safetyRatio) 倍才拦截，避免启发式高估误伤 */
-const DEFAULT_SAFETY_RATIO = 0.15;
+const DEFAULT_SAFETY_RATIO = 0.1;
 
 /** 递归遍历深度上限，防御异常深的对象 */
 const MAX_WALK_DEPTH = 32;
@@ -98,9 +106,14 @@ export function estimateInputTokens(payload, options = {}) {
   const imageTokenEstimate = Number(options.imageTokenEstimate) > 0
     ? Number(options.imageTokenEstimate)
     : DEFAULT_IMAGE_TOKEN_ESTIMATE;
+  const signatureCharsPerToken = Number(options.signatureCharsPerToken) > 0
+    ? Number(options.signatureCharsPerToken)
+    : DEFAULT_SIGNATURE_CHARS_PER_TOKEN;
 
   let tokens = 0;
   let images = 0;
+  let signatureChars = 0;
+  let signatureTokens = 0;
   const visited = new WeakSet();
   const contributions = [];
 
@@ -141,9 +154,13 @@ export function estimateInputTokens(payload, options = {}) {
       const lowerKey = key.toLowerCase();
       const childPath = path ? `${path}.${key}` : key;
 
-      // 思考签名：上游不计入输入 token，仅记录长度用于排障
+      // 思考签名：base64 密文，上游会计入输入 token，按 1.7 字符/token 换算
       if (typeof value === 'string' && SIGNATURE_KEYS.has(lowerKey)) {
-        record(childPath, value.length, 0, 'signature');
+        const valueTokens = Math.ceil(value.length / signatureCharsPerToken);
+        signatureChars += value.length;
+        signatureTokens += valueTokens;
+        tokens += valueTokens;
+        record(childPath, value.length, valueTokens, 'signature');
         continue;
       }
 
@@ -165,7 +182,7 @@ export function estimateInputTokens(payload, options = {}) {
   contributions.sort((a, b) => b.tokens - a.tokens);
   const top = contributions.slice(0, 5).map(c => ({ ...c, path: c.path || '(root)' }));
 
-  return { tokens, images, top };
+  return { tokens, images, signatureChars, signatureTokens, top };
 }
 
 function stringifyErrorBody(errorBody) {
@@ -226,20 +243,35 @@ export function formatTokenCount(value) {
 
 /**
  * 构建中文可读的「输入超限」提示
- * @param {{ estimatedTokens?: number|null, limit?: number|null, precheck?: boolean }} [options]
+ * @param {{ estimatedTokens?: number|null, limit?: number|null, precheck?: boolean, signatureTokens?: number|null }} [options]
  * @returns {string}
  */
 export function buildInputTokenLimitMessage(options = {}) {
   const limit = Number(options.limit) > 0 ? Number(options.limit) : DEFAULT_INPUT_TOKEN_LIMIT;
   const estimatedTokens = Number(options.estimatedTokens) > 0 ? Number(options.estimatedTokens) : null;
+  const signatureTokens = Number(options.signatureTokens) > 0 ? Number(options.signatureTokens) : null;
 
   const limitText = `${formatTokenCount(limit)} token（${limit.toLocaleString('en-US')}）`;
-  const estimateText = estimatedTokens ? `，本次请求约 ${formatTokenCount(estimatedTokens)} token（本地估算，仅供参考）` : '';
+  let estimateText = estimatedTokens ? `，本次请求约 ${formatTokenCount(estimatedTokens)} token` : '';
+
+  // 思考签名占大头时单独说明：这类内容无法手动删减，只能靠新建会话
+  const signatureShare = estimatedTokens && signatureTokens
+    ? Math.round((signatureTokens / estimatedTokens) * 100)
+    : 0;
+  if (signatureTokens) {
+    estimateText += `（其中历史思考签名约 ${formatTokenCount(signatureTokens)} token，占 ${signatureShare}%）`;
+  }
+  estimateText += estimatedTokens ? '，本地估算仅供参考' : '';
+
   const head = options.precheck
     ? '请求已被提前拦截：输入内容超过模型单次上限'
     : '输入内容超过模型单次上限';
 
-  return `${head}：上限 ${limitText}${estimateText}。请新建会话、精简历史消息，或减少粘贴的文本 / 图片 / 附件后重试。`;
+  const advice = signatureShare >= 50
+    ? '本次请求大部分是历史思考签名（由模型思考产生，无法手动删除），请新建会话后继续。'
+    : '请新建会话、精简历史消息，或减少粘贴的文本 / 图片 / 附件后重试。';
+
+  return `${head}：上限 ${limitText}${estimateText}。${advice}`;
 }
 
 /**
@@ -247,8 +279,8 @@ export function buildInputTokenLimitMessage(options = {}) {
  *
  * 明显超限时抛出 InputTokenLimitError（400），否则返回估算结果。
  * @param {any} payload - 即将发送给上游的完整请求体
- * @param {{ enabled?: boolean, limit?: number, warnRatio?: number, safetyRatio?: number, imageTokenEstimate?: number }} [options]
- * @returns {{ tokens: number, images: number, limit: number, nearLimit: boolean }|null}
+ * @param {{ enabled?: boolean, limit?: number, warnRatio?: number, safetyRatio?: number, imageTokenEstimate?: number, signatureCharsPerToken?: number }} [options]
+ * @returns {{ tokens: number, images: number, signatureChars: number, signatureTokens: number, limit: number, nearLimit: boolean, top: Array }|null}
  */
 export function assertInputTokensWithinLimit(payload, options = {}) {
   if (options && options.enabled === false) return null;
@@ -262,16 +294,16 @@ export function assertInputTokensWithinLimit(payload, options = {}) {
     : DEFAULT_SAFETY_RATIO;
   const threshold = limit * (1 + safetyRatio);
 
-  const { tokens, images, top } = estimateInputTokens(payload, options);
+  const { tokens, images, signatureChars, signatureTokens, top } = estimateInputTokens(payload, options);
 
   if (tokens > threshold) {
     const error = new InputTokenLimitError(
-      buildInputTokenLimitMessage({ estimatedTokens: tokens, limit, precheck: true }),
-      { estimatedTokens: tokens, limit, precheck: true }
+      buildInputTokenLimitMessage({ estimatedTokens: tokens, limit, precheck: true, signatureTokens }),
+      { estimatedTokens: tokens, limit, precheck: true, signatureTokens }
     );
     error.topContributors = top;
     throw error;
   }
 
-  return { tokens, images, limit, nearLimit: tokens >= limit * warnRatio, top };
+  return { tokens, images, signatureChars, signatureTokens, limit, nearLimit: tokens >= limit * warnRatio, top };
 }

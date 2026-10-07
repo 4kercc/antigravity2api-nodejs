@@ -93,8 +93,10 @@ t('返回占用最大的估算来源', estDataUrl.top.length >= 3 && estDataUrl.
 t('估算来源带字段路径', estDataUrl.top.some(item => item.path.includes('url')), JSON.stringify(estDataUrl.top.map(i => i.path)));
 t('估算来源不含原始内容', estDataUrl.top.every(item => Object.keys(item).sort().join(',') === 'chars,kind,path,tokens'));
 
-// ============ 2.1 思考签名不计入输入 token（实测结论） ============
-// 实测：回传 1244 字符的真实 thoughtSignature，上游 prompt_tokens 只增加 8（新增文本本身）
+// ============ 2.1 思考签名计入输入 token（线上实测结论） ============
+// 线上：正文估算 12.2 万 token 的请求被上游判为「超过 1,048,576」，
+// 同期同客户端有请求成功且 In 1108575 —— 差值正是历史思考签名的体积。
+// 注意：用「通用缓存签名」做小实验会得出「不计入」的错误结论（无关签名会被上游忽略）。
 const sigBody = {
   request: {
     contents: [{
@@ -105,31 +107,30 @@ const sigBody = {
   }
 };
 const estSig = estimateInputTokens(sigBody);
-t('thoughtSignature 不计入 token', estSig.tokens === 100, JSON.stringify({ tokens: estSig.tokens }));
-t('签名被单独归类为 signature', estSig.top.some(i => i.kind === 'signature' && i.chars === 126216), JSON.stringify(estSig.top));
-t('签名仍会出现在估算来源中（便于排障）', estSig.top.some(i => i.path.includes('thoughtSignature')));
+t('thoughtSignature 计入 token（1.7 字符/token）', estSig.tokens === 100 + Math.ceil(126216 / 1.7), JSON.stringify({ tokens: estSig.tokens, expected: 100 + Math.ceil(126216 / 1.7) }));
+t('签名统计单独返回', estSig.signatureChars === 126216 && estSig.signatureTokens === Math.ceil(126216 / 1.7), JSON.stringify(estSig.signatureTokens));
+t('签名归类为 signature 且排进估算来源', estSig.top[0].kind === 'signature' && estSig.top[0].path.includes('thoughtSignature'), JSON.stringify(estSig.top[0]));
+t('签名字符/token 比可配置', estimateInputTokens(sigBody, { signatureCharsPerToken: 4 }).tokens === 100 + Math.ceil(126216 / 4));
 
 const sigVariants = { a: { signature: 'A'.repeat(5000) }, b: { reasoningSignature: 'A'.repeat(5000) }, c: { toolSignature: 'A'.repeat(5000) } };
-t('各种签名字段都不计入', estimateInputTokens(sigVariants).tokens === 0, String(estimateInputTokens(sigVariants).tokens));
+t('各种签名字段都计入', estimateInputTokens(sigVariants).signatureChars === 15000, String(estimateInputTokens(sigVariants).signatureChars));
 
-// 线上真实场景：8 个 12.6 万字符签名（不计入）+ 8 段 7.5 万字符正文（=15 万 token）
+// 线上真实场景：13 个 12.6 万字符签名（≈96.5 万 token）+ 12 万字符正文
 const liveLikeBody = {
   request: {
-    contents: Array.from({ length: 8 }, () => ({ parts: [{ thoughtSignature: 'A'.repeat(126216), text: 'a'.repeat(75000) }] }))
+    contents: [
+      ...Array.from({ length: 13 }, () => ({ parts: [{ thoughtSignature: 'A'.repeat(126216) }] })),
+      { parts: [{ text: 'a'.repeat(480000) }] }
+    ]
   }
 };
 const liveLikeInfo = assertInputTokensWithinLimit(liveLikeBody, { limit: DEFAULT_INPUT_TOKEN_LIMIT });
-t('签名-heavy 的真实会话不会被误拦截', liveLikeInfo && liveLikeInfo.tokens === 150000, JSON.stringify(liveLikeInfo && liveLikeInfo.tokens));
-t('签名-heavy 会话不触发 nearLimit', liveLikeInfo.nearLimit === false);
+t('线上签名-heavy 会话被正确识别为接近上限', liveLikeInfo.nearLimit === true, JSON.stringify(liveLikeInfo && liveLikeInfo.tokens));
+t('签名估算量级正确（≈108 万）', liveLikeInfo.tokens > 1000000 && liveLikeInfo.tokens < 1200000, String(liveLikeInfo.tokens));
+t('签名 token 被单独统计', liveLikeInfo.signatureTokens === 13 * Math.ceil(126216 / 1.7), String(liveLikeInfo.signatureTokens));
 
-// 8 个签名 + 8 段 70 万字符正文（=140 万 token，超过上限 15% 余量）仍应拦截
-let sigHeavyThrown = null;
-try {
-  assertInputTokensWithinLimit({
-    request: { contents: Array.from({ length: 8 }, () => ({ parts: [{ thoughtSignature: 'A'.repeat(126216), text: 'a'.repeat(700000) }] })) }
-  }, { limit: DEFAULT_INPUT_TOKEN_LIMIT });
-} catch (e) { sigHeavyThrown = e; }
-t('签名排除后正文仍超限则照常拦截', sigHeavyThrown instanceof InputTokenLimitError, sigHeavyThrown && sigHeavyThrown.message);
+// 无签名的纯正文请求不应被签名逻辑影响
+t('无签名请求 signatureTokens = 0', estimateInputTokens(bodyOf(400)).signatureTokens === 0);
 
 // ============ 3. 超限报文识别 ============
 const realUpstreamBody = JSON.stringify({
@@ -161,6 +162,13 @@ t('提示包含本次估算', msg.includes('110.0 万'), msg);
 t('提示包含处理建议', msg.includes('新建会话') && msg.includes('附件'), msg);
 const msgNoEstimate = buildInputTokenLimitMessage({ limit: 1048576 });
 t('无估算值时文案不出现「本地估算」', !msgNoEstimate.includes('本地估算'), msgNoEstimate);
+
+// 签名占大头时应给出针对性建议
+const sigMsg = buildInputTokenLimitMessage({ estimatedTokens: 1100000, limit: 1048576, signatureTokens: 965000 });
+t('签名占大头时提示思考签名占比', sigMsg.includes('历史思考签名') && sigMsg.includes('88%'), sigMsg);
+t('签名占大头时建议新建会话', sigMsg.includes('无法手动删除'), sigMsg);
+const sigMsgMinor = buildInputTokenLimitMessage({ estimatedTokens: 1100000, limit: 1048576, signatureTokens: 100000 });
+t('签名占比低时仍给通用建议', sigMsgMinor.includes('精简历史消息') && !sigMsgMinor.includes('无法手动删除'), sigMsgMinor);
 
 // ============ 5. 预检守卫 ============
 const smallInfo = assertInputTokensWithinLimit(bodyOf(400), { limit: DEFAULT_INPUT_TOKEN_LIMIT });
