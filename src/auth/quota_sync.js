@@ -13,6 +13,7 @@ import quotaManager from './quota_manager.js';
 import { getModelsWithQuotas } from '../api/client.js';
 import { getConfigJson } from '../config/config.js';
 import warpManager from '../utils/warpManager.js';
+import { NETWORK_ERROR_SIGNATURES } from './token_lifecycle_manager.js';
 import { log } from '../utils/logger.js';
 
 const DEFAULT_SYNC_INTERVAL_MS = 10 * 60 * 1000; // 默认每 10 分钟同步一次
@@ -22,6 +23,16 @@ const SYNC_BATCH_SIZE = 4;                        // 每批并发数，避免瞬
 let intervalTimer = null;
 let initialTimer = null;
 let syncing = false;
+
+/**
+ * 判断错误是否属于网络/代理层异常（而非鉴权、额度等业务错误）
+ * @param {any} error
+ * @returns {boolean}
+ */
+function isNetworkOrProxyError(error) {
+  const text = `${error?.message || ''} ${error?.code || ''}`.toLowerCase();
+  return NETWORK_ERROR_SIGNATURES.some(signature => text.includes(signature));
+}
 
 /**
  * 立即同步所有启用账号的额度数据
@@ -43,11 +54,13 @@ export async function syncAllTokenQuotas() {
 
     let synced = 0;
     let failed = 0;
+    const failures = []; // 保留少量失败原因，用于区分「网络中断」与「令牌失效」
 
     for (let i = 0; i < tokens.length; i += SYNC_BATCH_SIZE) {
       const batch = tokens.slice(i, i + SYNC_BATCH_SIZE);
       await Promise.all(batch.map(async (token) => {
         try {
+          // 过期令牌的刷新由 getModelsWithQuotas 内部负责（访问令牌仅 1 小时有效期）
           const quotas = await getModelsWithQuotas(token);
           if (quotas && Object.keys(quotas).length > 0) {
             const tokenId = await tokenManager.pool.generateTokenId(token);
@@ -58,6 +71,7 @@ export async function syncAllTokenQuotas() {
           }
         } catch (error) {
           failed++;
+          if (failures.length < 5) failures.push(error);
           log.warn(`[QuotaSync] 账号额度同步失败 [${token.email || token.projectId || 'unknown'}]: ${error.message}`);
         }
       }));
@@ -65,9 +79,14 @@ export async function syncAllTokenQuotas() {
 
     log.info(`[QuotaSync] 额度自动同步完成: 成功 ${synced} 个${failed > 0 ? `, 失败 ${failed} 个` : ''}`);
 
-    // 全部账号同步失败通常意味着代理/网络中断（而非单账号问题），上报给 WARP 自愈检测器
+    // 全部账号同步失败通常意味着代理/网络中断，上报给 WARP 自愈检测器；
+    // 但若失败是令牌失效/权限问题（401/403 等），重启 WARP 换 IP 无济于事，需避免误触发。
     if (synced === 0 && failed > 0) {
-      warpManager.reportNetworkFailure(`额度同步全部失败 (${failed} 个账号)`);
+      if (failures.some(isNetworkOrProxyError)) {
+        warpManager.reportNetworkFailure(`额度同步全部失败 (${failed} 个账号)`);
+      } else {
+        log.warn('[QuotaSync] 全部账号同步失败且均为非网络类错误（如令牌失效），已跳过 WARP 自愈');
+      }
     }
 
     return { total: tokens.length, synced, failed };

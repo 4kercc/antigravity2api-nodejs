@@ -543,6 +543,20 @@ export function clearModelListCache() {
 }
 
 export async function getModelsWithQuotas(token) {
+  // 访问令牌有效期仅 1 小时。额度查询是后台/旁路调用，不像聊天请求那样先经 getToken 刷新，
+  // 因此账号池空闲超过 1 小时后，所有额度查询都会带着过期令牌请求上游并统一返回
+  // 401 UNAUTHENTICATED（表现为「额度同步失败」「额度缓存长期不更新」）。这里补一次刷新。
+  if (token && tokenManager.isExpired(token)) {
+    try {
+      await tokenManager.refreshToken(token, true);
+    } catch (error) {
+      // 刷新失败时直接抛出：网络类错误交由上层（如 QuotaSync）判定是否触发 WARP 自愈，
+      // 令牌被撤销等业务错误也能给出更准确的原因
+      logger.warn(`查询额度前刷新令牌失败 [${token.email || token.projectId || 'unknown'}]: ${error.message}`);
+      throw error;
+    }
+  }
+
   const headers = buildHeaders(token);
   const data = await fetchRawModels(headers, token);
   if (!data) return {};
