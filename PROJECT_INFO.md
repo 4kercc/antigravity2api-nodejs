@@ -174,40 +174,44 @@ antigravity2api/
 ### 15. 输入上下文超限（1M token）预检与中文提示
 - **问题背景**：用户遇到 `生成响应失败: API请求失败 (400): {"error":{"code":400,"message":"The input token count exceeds the maximum number of tokens allowed 1048576.","status":"INVALID_ARGUMENT"}}`。这是**上下文长度问题，不是账号/额度问题**：`1048576` 即 2²⁰，是模型单次请求的**输入上限**（用户日志中已有请求达到 `In 613797` 量级，接近该上限）。原样抛出英文报错容易让人误判为账号失效或额度耗尽。
 - **新增模块 `src/utils/inputTokenGuard.js`**（纯函数、无副作用，可单测）：
-  - `estimateTextTokens` / `estimateInputTokens`：启发式估算输入 token——CJK 字符 ≈ 1 token/字符，其他字符 ≈ 1 token/4 字符，内联 base64 图片按固定估值（默认 1300，可通过 `imageTokenEstimate` 配置）计，避免按 base64 长度爆炸式高估；带循环引用防护与深度上限；
-  - **思考签名（thoughtSignature / signature 等）不计入估算**——见下方实测结论，这是避免误拦截的关键；
-  - 返回占用最大的 5 个估算来源（`path` / `kind` / `chars` / `tokens`，**不含内容**），拦截时写入日志，便于判断是否误判；
+  - `estimateTextTokens` / `estimateInputTokens`：启发式估算输入 token——CJK 字符 ≈ 1 token/字符，其他字符 ≈ 1 token/4 字符，思考签名按 1 token/1.7 字符（base64 密文），内联 base64 图片按固定估值（默认 1300，可通过 `imageTokenEstimate` 配置）计；带循环引用防护与深度上限；
+  - 返回占用最大的 5 个估算来源（`path` / `kind` / `chars` / `tokens`，**不含内容**）以及签名合计（`signatureChars` / `signatureTokens`），拦截时写入日志，便于判断是否误判；
   - `isInputTokenLimitError` / `parseUpstreamInputLimit`：识别上游超限报文并解析真实上限（如 `allowed 1048576`），兼容 Google / OpenAI 两种措辞；
-  - `buildInputTokenLimitMessage`：生成中文可读提示（含上限、本次估算值与处理建议）；
+  - `buildInputTokenLimitMessage`：生成中文可读提示（含上限、本次估算值、签名占比与处理建议）；
   - `assertInputTokensWithinLimit`：请求发出前的预检守卫，超限抛 `InputTokenLimitError`。
 - **实测标定（在线上服务上真实打点，用于校正估算因子）**：
   | 实验 | 上游返回 prompt_tokens | 结论 |
   | --- | --- | --- |
   | 中文 4 字 → 中文 4004 字 | 281 → 4281 | 中文 ≈ **1 token/字符**（原因子正确） |
   | 英文 4 字符 → 4004 字符 | 278 → 778 | 重复字符 ≈ 8 字符/token（真实散文约 4 字符/token，保留 /4 偏保守） |
-  | 回传 **1244 字符真实 thoughtSignature** | 280 → **288**（仅 +8，即新增文本本身） | **签名不计入输入 token**；而线上单个签名可达 12.6 万字符，若不排除会让估算虚高约 3 万 token/个 |
-  | base64 4004 字符 | 278 → 2629 | base64 ≈ 1.7 字符/token |
-  结论直接改掉了两个会造成**误拦截**的设计：签名不再计入；并新增 `safetyRatio`（默认 0.15，即估算值需超过上限 15% 才拦截）吸收启发式高估偏差。
+  | base64 4004 字符 | 278 → 2629 | base64 ≈ **1.7 字符/token**（签名换算依据） |
+  | 回传 1 个 / 10 个「通用缓存签名」 | 283 → 328（仅 +45，为新增文本本身） | ⚠️ **不可作为结论**：与当前会话无关的签名会被上游忽略/丢弃，因此小实验会得出「签名不计入」的**错误结论** |
+- **思考签名是否计入输入 token —— 最终结论：计入**（依据线上真实流量，而非小实验）：
+  - 线上失败请求：本地正文估算仅 **12.2 万** token，上游却返回 `The input token count exceeds the maximum number of tokens allowed 1048576`（原始报文已抓取留档）；
+  - 同期同一客户端有请求**成功**且用量为 `In 1108575`；差值约 **98 万 token** 与历史思考签名的体积吻合（单个签名 12.6 万字符 × 约 13 个 ÷ 1.7 ≈ 96.5 万）；
+  - 机制解释：只有**与当前会话绑定**的真实签名会被回放并计入输入；无关签名被静默丢弃，所以合成签名测不出成本。
+  - 这也解释了用户反馈「估算 13.3 万却说超限」的困惑：**此前把签名排除在估算之外，导致报出的数字严重偏低**。
 - **新增错误类型 `InputTokenLimitError`**（`src/utils/errors.js`）：HTTP 400，对外返回 OpenAI 规范 `type: invalid_request_error` / `code: context_length_exceeded`，便于 Cline / Roo 等客户端识别后自动裁剪上下文。
 - **接入点**：
-  - `src/api/client.js` 三个入口（流式 `generateAssistantResponse`、非流式 `generateAssistantResponseNoStream`、图片 `generateImageForSD`）在发请求前调用 `precheckInputTokens()`，**明显超限直接拦截**（不再浪费一次注定失败的上游请求与账号额度），达到上限 90% 时记录「接近上限」告警；
-  - `handleApiError` 新增超限识别分支：命中即抛中文提示错误（不再原样透出英文报文），并带上本地估算值作为参考；
+  - `src/api/client.js` 三个入口（流式 `generateAssistantResponse`、非流式 `generateAssistantResponseNoStream`、图片 `generateImageForSD`）在发请求前调用 `precheckInputTokens()`，**明显超限直接拦截**（不再浪费一次注定失败的上游请求与账号额度），达到上限 90% 时记录「接近上限」告警（含签名占比，便于与上游 `In` 对照标定）；
+  - `handleApiError` 新增超限识别分支：命中即抛中文提示错误，并打印**上游原始报文** + 估算来源明细，便于核对「上游真实上限」与「估算是否失真」；
   - `src/server/handlers/common/externalChannelError.js`：外部渠道 502 分支统一提取上游 `error.message`，超限时同样转中文提示（同时解决了原先只暴露 axios「Request failed with status code 400」泛化文案的问题）。
 - **配置项 `inputTokenGuard`**（`config.json`，默认开启；`config.json.example` 已同步）：
   ```json
-  "inputTokenGuard": { "enabled": true, "limit": 1048576, "warnRatio": 0.9, "safetyRatio": 0.15, "imageTokenEstimate": 1300 }
+  "inputTokenGuard": { "enabled": true, "limit": 1048576, "warnRatio": 0.9, "safetyRatio": 0.1, "signatureCharsPerToken": 1.7, "imageTokenEstimate": 1300 }
   ```
   环境变量覆盖：`INPUT_TOKEN_GUARD=0` 关闭预检、`INPUT_TOKEN_LIMIT=<n>` 改上限。
 - **验证**：
-  - `node scripts/test-input-token-guard.mjs` —— 62 条用例全部通过（文本/图片/签名估算、循环引用、data URL 识别、真实超限报文识别、误判防护、预检拦截与放行边界、安全余量、错误响应格式、外部渠道错误描述）；
-  - 线上端到端实测（最终构建，直接打真实上游）：
+  - `node scripts/test-input-token-guard.mjs` —— 67 条用例全部通过（文本/图片/签名估算、循环引用、data URL 识别、真实超限报文识别、误判防护、预检拦截与放行边界、安全余量、签名占比文案、错误响应格式、外部渠道错误描述）；
+  - 线上端到端实测（直接打真实上游）：
     | 场景 | 结果 |
     | --- | --- |
     | 正常小请求 | `HTTP 200`，正常返回 |
     | 600 万字符（估算 150 万 token，超出余量） | `HTTP 400` 秒拦，响应体 `{"error":{"message":"请求已被提前拦截：…","type":"invalid_request_error","code":"context_length_exceeded"}}` |
-    | **440 万字符（估算 110 万 token，落在 15% 余量内）** | **放行后上游实际接受并返回 `HTTP 200`**（重复字符实测约 8 字符/token，真实约 55 万 token）——证明安全余量确实避免了「估算虚高导致误拦」 |
-  - 排障可观测性：拦截日志会打印估算来源（`request.contents[4].parts[0].thoughtSignature | signature | 126216 字符 ≈ 0 token`），线上正是靠这条日志定位到「签名被误计入」这个根因。
-- **未做（保留给客户端/按需）**：自动裁剪最老消息以塞进上限的行为**默认不开启**——静默改动用户上下文有语义风险，建议由客户端新建会话处理。
+    | 440 万字符（估算 110 万 token，落在安全余量内） | 放行后上游实际接受并返回 `HTTP 200`（重复字符实测约 8 字符/token）——说明安全余量避免了「估算虚高导致误拦」 |
+- **未做（保留给客户端/按需）**：
+  - 自动裁剪最老消息以塞进上限的行为**默认不开启**——静默改动用户上下文有语义风险，建议由客户端新建会话处理；
+  - **剥离历史签名**（可显著缩小超长会话）未默认启用：签名是模型推理连续性的一部分，缺失可能导致工具调用报错（项目现有 `useFallbackSignature` 正是为此兜底），需单独评估后再决定。
 
 ---
 
