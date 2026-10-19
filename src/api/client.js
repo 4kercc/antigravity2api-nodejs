@@ -625,7 +625,11 @@ export async function getModelsWithQuotas(token) {
       r: qInfo.remainingFraction !== undefined ? qInfo.remainingFraction : null,
       t: qInfo.resetTime || null,
       wr: wInfo.remainingFraction ?? qInfo.weeklyRemainingFraction ?? groupWeekly.wr ?? null,
-      wt: wInfo.resetTime ?? qInfo.weeklyResetTime ?? groupWeekly.wt ?? null
+      wt: wInfo.resetTime ?? qInfo.weeklyResetTime ?? groupWeekly.wt ?? null,
+      // 上游对未订阅的模型会返回占位条目（如 gemini-4-argon-disabled，disabled: true、
+      // 没有 quotaInfo）。必须保留该标记：它既不能参与组额度计算（r=null 会被当成 0，
+      // 拖垮整个 gemini 组的可用性判断），又要用于判断「该账号确实没有这个模型」。
+      ...(modelData.disabled === true ? { disabled: true } : {})
     };
   });
 

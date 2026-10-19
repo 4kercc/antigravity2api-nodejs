@@ -20,6 +20,25 @@ const GROUP_COST_PERCENT = {
 // （由额度自动同步任务定时刷新，正常运行时数据不会超过该时长）
 const QUOTA_DATA_MAX_AGE_MS = 60 * 60 * 1000;
 
+/**
+ * 判断上游的 disabled 占位模型是否覆盖了请求的模型
+ *
+ * 上游用 `<family>-disabled` 表示「该账号未订阅这一族模型」，例如：
+ *   gemini-4-argon-disabled  ->  gemini-4-argon-high / -medium / -low
+ * @param {string} disabledId - 占位模型 ID
+ * @param {string} modelId - 请求的模型 ID
+ * @returns {boolean}
+ */
+function matchesDisabledModel(disabledId, modelId) {
+  if (!disabledId || !modelId) return false;
+  const disabled = String(disabledId).toLowerCase();
+  const model = String(modelId).toLowerCase();
+  if (disabled === model) return true;
+  const base = disabled.replace(/-disabled$/, '');
+  if (base === disabled) return false;
+  return model === base || model.startsWith(`${base}-`);
+}
+
 class QuotaManager {
   /**
    * @param {string} filePath - 额度数据文件路径
@@ -88,6 +107,21 @@ class QuotaManager {
     const existingRequestCounts = existing.requestCounts || {};
     const existingResetTimes = existing.resetTimes || {};
 
+    // 上游对未订阅的模型会返回 disabled 占位条目（如 gemini-4-argon-disabled）。
+    // 这类条目没有额度信息，若混在 models 里参与组最小值计算会把整组额度拉到 0，
+    // 导致该账号被误判为「所有 Gemini 模型都不可用」；因此单独存放，
+    // 仅用于判断「该账号确实没有这个模型」。
+    const disabledModels = [];
+    const enabledQuotas = {};
+    Object.entries(quotas || {}).forEach(([modelId, quotaData]) => {
+      if (quotaData && quotaData.disabled === true) {
+        disabledModels.push(modelId);
+        return;
+      }
+      enabledQuotas[modelId] = quotaData;
+    });
+    quotas = enabledQuotas;
+
     // 检查各个模型组的重置时间和额度变化
     const newResetTimes = {};
     const newRequestCounts = { ...existingRequestCounts };
@@ -102,6 +136,8 @@ class QuotaManager {
     // 计算新数据中每个组的最低额度和重置时间
     Object.entries(quotas || {}).forEach(([modelId, quotaData]) => {
       const groupKey = getGroupKey(modelId);
+      // r 为 null 表示上游未给出该模型额度（无 quotaInfo），不参与组最小值计算
+      if (quotaData.r === null || quotaData.r === undefined) return;
       const remaining = quotaData.r || 0;
 
       if (groupMinRemaining[groupKey] === undefined || remaining < groupMinRemaining[groupKey]) {
@@ -122,6 +158,7 @@ class QuotaManager {
     // 计算旧数据中每个组的最低额度
     Object.entries(existingModels).forEach(([modelId, quotaData]) => {
       const groupKey = getGroupKey(modelId);
+      if (quotaData.r === null || quotaData.r === undefined) return;
       const remaining = quotaData.r || 0;
 
       if (existingGroupMinRemaining[groupKey] === undefined || remaining < existingGroupMinRemaining[groupKey]) {
@@ -164,6 +201,7 @@ class QuotaManager {
     this.cache.set(refreshToken, {
       lastUpdated: Date.now(),
       models: quotas,
+      disabledModels,
       requestCounts: newRequestCounts,
       resetTimes: newResetTimes
     });
@@ -252,6 +290,17 @@ class QuotaManager {
       return true;
     }
 
+    // 上游用 disabled 占位模型表示「该账号未订阅此模型」（如 gemini-4-argon-disabled）。
+    // 命中同一模型族时直接判定不可用，避免请求被路由到没有该模型的账号后返回 404。
+    // 兼容旧缓存：disabled 条目也可能残留在 models 中，故一并检查 ID 后缀。
+    const disabledIds = new Set(Array.isArray(data.disabledModels) ? data.disabledModels : []);
+    for (const id of Object.keys(data.models)) {
+      if (/-disabled$/i.test(id)) disabledIds.add(id);
+    }
+    if ([...disabledIds].some(id => matchesDisabledModel(id, modelId))) {
+      return false;
+    }
+
     const groupKey = getGroupKey(modelId);
 
     // 使用该组的最小额度来判断（与 getModelGroupQuota 逻辑一致）
@@ -260,6 +309,9 @@ class QuotaManager {
     for (const [id, quotaData] of Object.entries(data.models)) {
       const idGroupKey = getGroupKey(id);
       if (idGroupKey === groupKey) {
+        // r 为 null 表示上游未提供该模型额度（如无 quotaInfo 的占位/内部模型），
+        // 不能当作 0 参与最小值计算，否则会把整组额度误判为耗尽
+        if (quotaData.r === null || quotaData.r === undefined) continue;
         const remaining = quotaData.r || 0;
         const weeklyRemaining = quotaData.wr !== null && quotaData.wr !== undefined ? quotaData.wr : null;
         const effectiveRemaining = weeklyRemaining !== null ? Math.min(remaining, weeklyRemaining) : remaining;
@@ -295,6 +347,8 @@ class QuotaManager {
     for (const [id, quotaData] of Object.entries(data.models)) {
       const idGroupKey = getGroupKey(id);
       if (idGroupKey === groupKey) {
+        // 无额度信息的模型（r=null）不参与最小值计算
+        if (quotaData.r === null || quotaData.r === undefined) continue;
         found = true;
         const remaining = quotaData.r || 0;
         if (remaining < minRemaining) {
