@@ -157,13 +157,26 @@ function getDefaultModelList() {
   const created = Math.floor(Date.now() / 1000);
   return {
     object: 'list',
-    data: DEFAULT_MODELS.map(id => ({
+    data: getAllowedModelIds().map(id => ({
       id,
       object: 'model',
       created,
       owned_by: 'google'
     }))
   };
+}
+
+/**
+ * 读取对外模型白名单（config.json: models.allowlist）
+ * 空数组/未配置时返回默认模型列表，表示不限制
+ * @returns {string[]}
+ */
+function getAllowedModelIds() {
+  const allowlist = config.models?.allowlist;
+  if (!Array.isArray(allowlist) || allowlist.length === 0) {
+    return DEFAULT_MODELS.slice();
+  }
+  return allowlist;
 }
 
 
@@ -479,6 +492,14 @@ async function fetchRawModels(headers, token) {
 }
 
 export async function getAvailableModels() {
+  // 配置了对外模型白名单时，直接按白名单返回：
+  // 1) 列表稳定，不会随本次抽到的账号目录不同而变化；
+  // 2) 已下架的旧模型（3.7 / 3.6 / 2.5 等）不会重新出现。
+  const allowlist = config.models?.allowlist;
+  if (Array.isArray(allowlist) && allowlist.length > 0) {
+    return getDefaultModelList();
+  }
+
   // 检查缓存是否有效（动态 TTL）
   const now = Date.now();
   const ttl = getModelCacheTTL();

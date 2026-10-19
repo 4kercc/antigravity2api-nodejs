@@ -293,6 +293,29 @@ const DEFAULT_IDE_VERSION = '2.24.0';
 /** 能拿到完整模型目录（含 Gemini 4 Argon）的最低客户端版本 */
 const MIN_MODEL_CATALOG_VERSION = '2.24.0';
 
+/**
+ * 对外暴露的模型白名单（config.json: models.allowlist）
+ * 与官方 IDE 模型选择器保持一致：Gemini 4 Argon、Gemini 3.8 Flash、
+ * Claude Opus 5.5、Claude Sonnet 5.5、GPT-OSS 120B（含各自档位）。
+ * 留空数组表示不限制（暴露上游目录中的全部模型）。
+ */
+const DEFAULT_MODEL_ALLOWLIST = [
+  'gemini-4-argon-high',
+  'gemini-4-argon-medium',
+  'gemini-4-argon-low',
+  'gemini-3.8-flash-high',
+  'gemini-3.8-flash-medium',
+  'gemini-3.8-flash-low',
+  'gemini-3.8-flash-tiered',
+  'claude-opus-5-5-high',
+  'claude-opus-5-5-medium',
+  'claude-opus-5-5-low',
+  'claude-sonnet-5-5-high',
+  'claude-sonnet-5-5-medium',
+  'claude-sonnet-5-5-low',
+  'gpt-oss-120b-medium'
+];
+
 const DEFAULT_API_UNLEASH = {
     register: "https://antigravity-unleash.goog/api/client/register",
     features: "https://antigravity-unleash.goog/api/client/features",
@@ -484,6 +507,14 @@ export function buildConfig(jsonConfig, upstreamCfg = {}) {
     // ==================== 外部上游渠道分流配置 ====================
     channels: {
       routingMode: jsonConfig.channels?.routingMode || 'fallback' // 'fallback' (原生优先) | 'external_first' (外部优先) | 'external_only' (强制仅外部)
+    },
+
+    // ==================== 对外模型列表 ====================
+    models: {
+      // 仅暴露白名单内的模型（留空数组 = 不限制，暴露上游全部模型）
+      allowlist: Array.isArray(jsonConfig.models?.allowlist)
+        ? jsonConfig.models.allowlist.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim())
+        : DEFAULT_MODEL_ALLOWLIST
     },
 
     // ==================== 输入上下文超限守卫 ====================
