@@ -329,6 +329,58 @@ function precheckInputTokens(requestBody) {
   }
 }
 
+/**
+ * 解析上游错误信息里的 schema 路径，取出对应的节点（用于定位工具定义问题）
+ * 支持 tools[0].function_declarations[60].parameters.properties[servers].items
+ * @param {any} root
+ * @param {string} pathText
+ * @returns {any}
+ */
+function resolveSchemaPath(root, pathText) {
+  const camelize = (key) => key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  let node = root;
+  for (const part of String(pathText).split('.')) {
+    if (node === null || node === undefined) return undefined;
+    const match = part.match(/^([A-Za-z_$][\w$]*)(?:\[([^\]]*)\])?$/);
+    if (!match) return undefined;
+    const key = [match[1], camelize(match[1])].find(k => node && typeof node === 'object' && k in node);
+    if (key === undefined) return undefined;
+    node = node[key];
+    if (match[2] !== undefined) {
+      const index = /^\d+$/.test(match[2]) ? Number(match[2]) : match[2];
+      node = node?.[index];
+    }
+  }
+  return node;
+}
+
+/**
+ * 上游工具 schema 校验失败时，打印被拒绝的具体参数结构
+ * @param {string} errorStr - 上游原始报文
+ * @param {any} requestBody - 发往上游的请求体
+ */
+function logRejectedToolSchemas(errorStr, requestBody) {
+  if (!requestBody || !String(errorStr).includes('field predicate failed')) return;
+  const marker = ': field predicate failed';
+  const seen = new Set();
+  for (const line of String(errorStr).split('\n')) {
+    const index = line.indexOf(marker);
+    if (index < 0) continue;
+    const path = line
+      .slice(0, index)
+      .replace(/^\s*\*?\s*/, '')
+      .replace(/^GenerateContentRequest\./, '')
+      .trim();
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const parent = resolveSchemaPath(requestBody, path.replace(/\.items$/, ''));
+    logger.warn(`⚠️ [工具Schema] 上游拒绝 ${path}`);
+    if (parent !== undefined) {
+      logger.warn(`   ↳ 客户端原始定义: ${JSON.stringify(parent).slice(0, 600)}`);
+    }
+  }
+}
+
 // 统一错误处理
 async function handleApiError(error, token, dumpId = null, context = {}) {
   const status = getUpstreamStatus(error);
@@ -339,6 +391,9 @@ async function handleApiError(error, token, dumpId = null, context = {}) {
   }
 
   const errorStr = String(errorBody ?? '');
+
+  // 工具 schema 被上游拒绝时，打印具体是哪个参数定义（便于定位客户端工具声明问题）
+  logRejectedToolSchemas(errorStr, context?.requestBody);
 
   // 输入上下文超过模型单次上限（如 1M token）：转成中文可读提示，
   // 避免用户把「上下文过大」误判成账号失效 / 额度耗尽

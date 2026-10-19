@@ -82,7 +82,9 @@ export function cleanParameters(obj) {
   if (currentObj.anyOf || currentObj.oneOf || currentObj.allOf) {
     const branches = currentObj.anyOf || currentObj.oneOf || currentObj.allOf;
     if (Array.isArray(branches)) {
-      const nonNullBranch = branches.find(b => b && b.type !== 'null' && (b.type || b.properties));
+      // 分支可能只有 items / enum 而没有 type（如 anyOf: [{type:'null'}, {items:{...}}]），
+      // 也要能选中，否则数组结构会在合并时丢失
+      const nonNullBranch = branches.find(b => b && b.type !== 'null' && (b.type || b.properties || b.items || b.enum));
       if (nonNullBranch && typeof nonNullBranch === 'object') {
         const { anyOf, oneOf, allOf, ...restParent } = currentObj;
         const merged = { ...restParent, ...nonNullBranch };
@@ -131,16 +133,19 @@ export function cleanParameters(obj) {
   }
 
   // Gemini 要求 items / properties 必须与 type 配套：
-  // 缺少 type 时会报 "field predicate failed: $type == Type.ARRAY"
-  // （Gemini 4 的 schema 校验比 3.8 更严格，客户端工具定义里常见 servers: { items: ... } 这种写法）。
-  // 这里按结构补全 type，并处理 JSON Schema 的元组写法（items 为数组时 Gemini 不支持，取第一项）。
+  // 缺少或冲突都会报 "field predicate failed: $type == Type.ARRAY"
+  // （Gemini 4 的 schema 校验比 3.8 更严格，客户端工具定义里常见 servers: { items: ... }，
+  //   或 anyOf 合并后残留 type: OBJECT + items 的组合）。
+  // 这里无条件以结构为准：有 items 就是 ARRAY，并处理 JSON Schema 元组写法
+  // （items 为数组时 Gemini 不支持，取第一项）。
   if (Array.isArray(cleaned.items)) {
     cleaned.items = cleaned.items.length > 0 ? cleaned.items[0] : { type: 'STRING' };
   }
-  if (!cleaned.type) {
-    if (cleaned.items !== undefined) {
-      cleaned.type = 'ARRAY';
-    } else if (cleaned.properties !== undefined) {
+  if (cleaned.items !== undefined) {
+    // items 已存在时 type 必须是 ARRAY，覆盖冲突的旧 type
+    cleaned.type = 'ARRAY';
+  } else if (!cleaned.type) {
+    if (cleaned.properties !== undefined) {
       cleaned.type = 'OBJECT';
     } else if (Array.isArray(cleaned.enum) && cleaned.enum.length > 0) {
       const first = cleaned.enum[0];
