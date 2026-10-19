@@ -17,7 +17,9 @@ const T1 = '__test_no_g4__';
 const T2 = '__test_has_g4__';
 const T3 = '__test_legacy_cache__';
 const T4 = '__test_low_quota__';
-const cleanup = () => [T1, T2, T3, T4].forEach(id => quotaManager.cache.delete(id));
+const T5 = '__test_catalog__';
+const T6 = '__test_catalog_55__';
+const cleanup = () => [T1, T2, T3, T4, T5, T6].forEach(id => quotaManager.cache.delete(id));
 
 try {
   // ============ 1. 未订阅 Gemini 4 的账号（线上真实形态） ============
@@ -63,6 +65,30 @@ try {
   quotaManager.updateQuota(T4, { 'gemini-3.8-flash-high': { r: 0.1 } });
   t('额度低于阈值仍被排除', quotaManager.hasQuotaForModel(T4, 'gemini-3.8-flash', 0.2) === false);
   t('阈值设为 0 时低额度仍可用', quotaManager.hasQuotaForModel(T4, 'gemini-3.8-flash', 0) === true);
+
+  // ============ 5. 模型目录校验（不同账号目录不同） ============
+  quotaManager.updateQuota(T5, {
+    'gemini-3.8-flash-tiered': { r: 0.9 },
+    'gemini-3.8-flash-medium': { r: 0.9 },
+    'gemini-3.8-flash-high': { r: 0.9 },
+    'gemini-3.5-flash-low': { r: 0.9 },
+    'gemini-2.5-pro': { r: 0.9 }
+  });
+  t('目录中有该模型（别名映射后命中）', quotaManager.hasQuotaForModel(T5, 'gemini-3.8-flash', 0.2) === true);
+  t('目录中没有的 3.7 系列判定不可用', quotaManager.hasQuotaForModel(T5, 'gemini-3.7-flash', 0.2) === false);
+  t('目录中没有的 Gemini 4 判定不可用', quotaManager.hasQuotaForModel(T5, 'gemini-4-argon-high', 0.2) === false);
+  t('目录中的显式档位可用', quotaManager.hasQuotaForModel(T5, 'gemini-3.8-flash-medium', 0.2) === true);
+
+  quotaManager.updateQuota(T6, {
+    'claude-opus-5-5-medium': { r: 1 },
+    'claude-sonnet-5-5-medium': { r: 1 },
+    'gemini-3.8-flash-tiered': { r: 1 },
+    'gemini-3.8-flash-medium': { r: 1 },
+    'gemini-4-argon-high': { r: 1, wr: 1 }
+  });
+  t('5.5 目录账号：Claude 4.6 判定不可用', quotaManager.hasQuotaForModel(T6, 'claude-opus-4-6-thinking', 0.2) === false);
+  t('5.5 目录账号：Claude 5.5 可用', quotaManager.hasQuotaForModel(T6, 'claude-sonnet-5-5-medium', 0.2) === true);
+  t('5.5 目录账号：Gemini 4 可用', quotaManager.hasQuotaForModel(T6, 'gemini-4-argon-high', 0.2) === true);
 } finally {
   cleanup();
 }

@@ -4,6 +4,7 @@ import { log } from '../utils/logger.js';
 import { getDataDir } from '../utils/paths.js';
 import { QUOTA_CACHE_TTL, QUOTA_CLEANUP_INTERVAL } from '../constants/index.js';
 import { getGroupKey } from '../utils/modelGroups.js';
+import { modelMapping } from '../utils/utils.js';
 
 // 每次请求消耗的额度百分比（按模型系列区分）
 const REQUEST_COST_PERCENT = 0.6667;
@@ -299,6 +300,23 @@ class QuotaManager {
     }
     if ([...disabledIds].some(id => matchesDisabledModel(id, modelId))) {
       return false;
+    }
+
+    // 模型目录校验：账号的目录里没有该模型时判定不可用。
+    // 不同账号的模型目录并不相同（例如 4.6 与 5.5 两代 Claude、是否包含 3.6/3.7 系列），
+    // 若不做这一步，请求会被轮询到没有该模型的账号上并返回 404。
+    // 比较前先按请求侧同一套规则做别名映射（如 gemini-3.8-flash -> gemini-3.8-flash-tiered）。
+    const catalogIds = Object.keys(data.models);
+    if (catalogIds.length >= 5) {
+      let targetModelId = modelId;
+      try {
+        targetModelId = modelMapping(modelId) || modelId;
+      } catch {
+        // 映射失败时按原始名称比较
+      }
+      if (!catalogIds.includes(targetModelId)) {
+        return false;
+      }
     }
 
     const groupKey = getGroupKey(modelId);
