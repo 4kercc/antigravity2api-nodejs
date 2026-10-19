@@ -152,14 +152,21 @@ export function modelMapping(modelName) {
     return 'claude-sonnet-4-5';
   }
 
-  // Gemini 3.8 / 3.x 动态匹配与映射
-  // e.g., gemini-3.8-flash, gemini-3.8-flash-thinking, gemini-3.8-pro 等
-  if (modelName.startsWith('gemini-3.8-flash') || modelName === 'gemini-3.8-flash') {
-    return 'gemini-3.7-flash-tiered';
+  // Gemini 3.8 / 3.7 映射（目录随客户端版本变化，需与 fetchAvailableModels 对齐）
+  // 3.8 有 tiered 版本，3.7 没有；显式档位（high/medium/low）在目录中真实存在，原样保留，
+  // 只有「泛名」才映射到该系列的默认档位。
+  if (modelName === 'gemini-3.8-flash' || modelName === 'gemini-3.8-flash-thinking' || modelName === 'gemini-3.8-flash-cyber') {
+    return 'gemini-3.8-flash-tiered';
   }
-  if (modelName.startsWith('gemini-3.8-pro') || modelName === 'gemini-3.8-pro') {
-    return 'gemini-3.7-pro';
+  if (modelName.startsWith('gemini-3.8-flash-')) return modelName; // high / medium / low / tiered
+  if (modelName === 'gemini-3.8-pro' || modelName === 'gemini-3.8-pro-low') return 'gemini-3.1-pro-low';
+  if (modelName === 'gemini-3.8-pro-high') return 'gemini-3.1-pro-high';
+
+  if (modelName === 'gemini-3.7-flash' || modelName === 'gemini-3.7-flash-thinking' || modelName === 'gemini-3.7-flash-lite' || modelName === 'gemini-3.7-flash-tiered') {
+    return 'gemini-3.7-flash-medium';
   }
+  if (modelName.startsWith('gemini-3.7-flash-')) return modelName; // high / medium / low
+  if (modelName === 'gemini-3.7-pro') return 'gemini-3.1-pro-low';
 
   // Pattern 2: claude-{major}-{minor}-{type}-{date} (Claude 3.x format)
   // e.g., claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022
@@ -196,13 +203,6 @@ export function modelMapping(modelName) {
   if (modelName === 'claude-opus-4-5-thinking') return 'claude-opus-4-6-thinking';
   if (modelName === 'claude-opus-4-6') return 'claude-opus-4-6-thinking';
   if (modelName === 'gemini-2.5-flash-thinking') return 'gemini-2.5-flash';
-  if (modelName === 'gemini-3.7-flash') return 'gemini-3.7-flash-tiered';
-  if (modelName === 'gemini-3.7-flash-high') return 'gemini-3.7-flash-tiered';
-  if (modelName === 'gemini-3.7-flash-medium') return 'gemini-3.7-flash-tiered';
-  if (modelName === 'gemini-3.7-flash-low') return 'gemini-3.7-flash-tiered';
-  if (modelName === 'gemini-3.7-flash-thinking') return 'gemini-3.7-flash-tiered';
-  if (modelName === 'gemini-3.7-flash-lite') return 'gemini-3.7-flash-tiered';
-  if (modelName === 'gemini-3.7-pro') return 'gemini-3.7-pro';
   if (modelName === 'gemini-3.6-flash') return 'gemini-3.6-flash';
   if (modelName === 'gemini-3.5-flash') return 'gemini-3.5-flash';
   return modelName;
