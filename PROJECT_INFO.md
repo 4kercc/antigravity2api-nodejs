@@ -305,11 +305,16 @@ antigravity2api/
   ```
   同一套工具定义在 Gemini 3.8 上可用，切换到 Gemini 4 后失败——**不是账号/额度问题，是工具 schema 不规范**。
 - **根因**：客户端工具定义里存在 `servers: { items: { type: 'string' } }` 这种「有 `items` 但没有 `type`」的写法。JSON Schema 允许省略（由结构推断），但 Gemini 4 的 proto 校验要求 `items` 必须与 `type == ARRAY` 配套，否则直接拒绝；3.8 对此较宽松。
-- **修复**（`src/utils/utils.js` `cleanParameters`）：清洗后若节点缺少 `type`，按结构补全：
-  - 有 `items` → `ARRAY`；有 `properties` → `OBJECT`；
-  - 有 `enum` → 按首个枚举值的类型补 `STRING` / `NUMBER` / `BOOLEAN`；
+- **修复**（`src/utils/utils.js` `cleanParameters`）：以结构为准做规范化：
+  - **只要存在 `items`，就强制 `type = ARRAY`**（覆盖冲突的旧 `type`，例如 anyOf 合并后残留的 `OBJECT`）；
+  - 无 `type` 且有 `properties` → `OBJECT`；无 `type` 且有 `enum` → 按首个枚举值推断 `STRING` / `NUMBER` / `BOOLEAN`；
+  - `anyOf/oneOf/allOf` 分支选择也接受「只定义了 `items`/`enum`」的分支，避免数组成员在合并时被丢弃；
   - JSON Schema 元组写法（`items` 为数组）Gemini 不支持，取第一项作为元素 schema。
-- **验证**：本地 8 条 schema 断言全部通过；线上用同样「有 items 无 type」的工具定义请求 `gemini-4-argon-high`，由 400 恢复为 `HTTP 200`（内容 `"正常"`）。
+- **定向诊断**（`src/api/client.js`）：上游再报 `field predicate failed` 时，解析错误里的 schema 路径（兼容 snake_case/camelCase），打印**被拒绝的参数定义原文**（截断 600 字符，不含对话内容），便于快速定位客户端工具声明。
+- **验证**：
+  - 本地 6 种 schema 形态断言全部通过；
+  - 线上用 Gemini 4 逐一实测（均带工具定义）：`无 type + items`、`冲突 type:object + items`、`anyOf + items`、`正常 type:array` —— **全部 `HTTP 200`（内容 "正常"）**；
+  - 第一次修复只补「缺失的 type」，线上仍然报错，说明客户端的实际形态是**冲突类型**；第二次改为无条件以 `items` 为准后通过。
 
 ---
 
