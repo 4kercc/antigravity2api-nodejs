@@ -122,6 +122,7 @@ antigravity2api/
 - **错误识别缺陷修复**：原先 Token 刷新路径只匹配大写 `ECONNREFUSED`，而 `socks-proxy-agent` 实际抛出的文本是 `Socks5 proxy rejected connection - ConnectionRefused`（大小写不同）导致漏判。现已统一转小写匹配，并补充 `proxy rejected`、`connection refused`、`econnreset`、`socket hang up`、`failed to fetch`、`getaddrinfo` 等特征，同时把 `500~504` 纳入网络异常判定。
 - **配套加固**：
   - `restartWarp` 的 shell 执行新增 60 秒超时（实测走 `systemctl restart warp-svc` 兜底分支时可达 25 秒，过短会在重启中途杀进程、可能让 WARP 停留在断开状态）；
+  - **重启后真实健康校验 + 服务级兜底**：`warp restart` / `warp-cli connect` 返回 0 并不代表守护进程可用——实测 `warp-svc` 卡死时 `warp-cli status` 报 `IPC call hit a timeout`，40000 端口仍在监听但所有连接被拒（`ConnectionRefused`），而重启命令依旧成功退出，导致 shell 链里的 `systemctl` 兜底永远不执行。现在重启命令执行后会探测 40000 端口，仍不可用则**升级为 `systemctl restart warp-svc`（服务级重启）**并等待代理恢复；
   - 启动自愈设 25 秒等待预算：超时则**不阻塞服务启动**，改由后台继续等待重启完成并校验 40000 端口就绪（日志会输出「后台补完」结果）；
   - 补齐 `config.js` 中缺失的 `warp` 配置段（此前 `warp.autoRestart` 未参与配置构建，进程重启后该开关会失效）；
   - 所有自愈动作复用既有的 60 秒冷却与 `isRestarting` 并发保护，不会产生重启风暴。
