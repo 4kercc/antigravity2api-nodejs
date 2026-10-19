@@ -277,6 +277,25 @@ antigravity2api/
 - **验证**：本地 20 条映射断言全部通过；线上 `gemini-3.8-flash` 由 404 恢复为 `HTTP 200 "正常"`。
 - **备注**：Claude 的日期型映射（如 `claude-sonnet-4-5`）未改动——新版目录按账号档位提供 `claude-sonnet-4-6` 或 `claude-sonnet-5-5-*`，没有统一目标，需按账号实际目录再定。
 
+### 20. 按模型精确路由 + 对外模型白名单
+- **需求**：Gemini 4 只轮询有 Gemini 4 权限的账号；Gemini 3.8 使用全部账号；对外模型列表只保留官方 IDE 选择器里现存的 5 个系列（Gemini 4 Argon / Gemini 3.8 Flash / Claude Opus 5.5 / Claude Sonnet 5.5 / GPT-OSS 120B），3.7、3.6、2.5 等已下架模型不再出现。
+- **按模型精确路由**（`src/auth/quota_manager.js` `hasQuotaForModel`）：
+  - 账号的 `disabled` 占位条目（如 `gemini-4-argon-disabled`）只否定对应模型族；
+  - **目录校验**：请求的模型（先经与请求侧一致的 `modelMapping` 别名映射）不在该账号的目录里时，判定该账号不可用。这样账号选择会自然收敛到「真正有该模型」的账号，避免 404；
+  - `catalogIds.length >= 5` 的保护条件确保目录数据不完整时不会过度过滤。
+- **对外模型白名单**（`src/config/config.js` + `src/api/client.js`）：
+  - 新增 `models.allowlist`（`config.json`，默认即上面 5 个系列的 14 个档位 ID；设为 `[]` 表示不限制）；
+  - `getAvailableModels()` 在配置了白名单时直接按白名单返回，因此 `/v1/models` 与 `/v1beta/models` 的列表**稳定**（不随抽到的账号目录变化），也不会被 `DEFAULT_MODELS` 里的旧模型重新带出来。
+- **线上验证（12 个账号）**：
+  | 请求模型 | 候选账号数 | 说明 |
+  | --- | --- | --- |
+  | `gemini-4-argon-high/medium/low` | **1** | 仅 `4kercc@gmail.com`（唯一有 Gemini 4 权限） |
+  | `gemini-3.8-flash` / `-medium` | **12** | 全部账号 |
+  | `claude-opus-5-5-medium` / `claude-sonnet-5-5-medium` | **1** | 其余 11 个账号目录里是 Claude 4.6，没有 5.5 |
+  | `gpt-oss-120b-medium` | **12** | 全部账号 |
+  - `GET /v1/models` 与 `GET /v1beta/models` 均只返回白名单内的 **14** 个模型。
+- **注意**：实际分发节奏仍由 `rotation.strategy` 决定。当前服务器为 `quota_exhausted`（把一个账号用到额度耗尽再换），若希望每个请求都轮换，可在后台把策略改为 `round_robin`；候选账号池本身已按上面的规则精确收敛。
+
 ---
 
 ## 🔧 四、 运维与常用命令
