@@ -385,15 +385,39 @@ class WarpManager {
       // timeout: 防止 warp/systemctl 命令挂起导致调用方（含服务启动流程）被卡死。
       // 注意不能设得过短：warp restart 走 systemctl 兜底分支时实测可达 25 秒，
       // 中途被杀可能让 WARP 停留在断开状态，因此保留 60 秒上限。
-      exec(restartCmd, { shell: '/bin/bash', timeout: 60000 }, (error, stdout, stderr) => {
+      exec(restartCmd, { shell: '/bin/bash', timeout: 60000 }, async (error, stdout, stderr) => {
         this.isRestarting = false;
         if (error) {
           log.error(`[WARP] 重启失败: ${error.message}`);
           resolve(false);
-        } else {
-          log.info(`[WARP] ✓ WARP 重启与刷新命令执行完成！${stdout ? stdout.trim() : ''}`);
-          resolve(true);
+          return;
         }
+
+        log.info(`[WARP] ✓ WARP 重启与刷新命令执行完成！${stdout ? stdout.trim() : ''}`);
+
+        // 命令返回 0 不代表守护进程真的可用：warp-svc 卡死时 warp-cli 仍可能正常退出，
+        // 而 40000 端口虽在监听却拒绝连接（日志表现为大量 ConnectionRefused）。
+        // 这里做一次真实健康校验，失败则升级为服务级重启。
+        const healthy = await this.waitForPort(40000, 8000);
+        if (healthy) {
+          resolve(true);
+          return;
+        }
+
+        log.warn('[WARP] 重启命令执行后 SOCKS5 代理仍不可用，升级为服务级重启 (systemctl restart warp-svc) ...');
+        exec(
+          'systemctl restart warp-svc 2>/dev/null || service warp-svc restart 2>/dev/null || true',
+          { shell: '/bin/bash', timeout: 40000 },
+          async (serviceError) => {
+            const recovered = await this.waitForPort(40000, 20000);
+            if (recovered) {
+              log.info('[WARP] ✓ 服务级重启完成，SOCKS5 代理 (40000) 已恢复');
+            } else {
+              log.error(`[WARP] ⚠ 服务级重启后代理仍不可用${serviceError ? `: ${serviceError.message}` : ''}`);
+            }
+            resolve(recovered);
+          }
+        );
       });
     });
   }
