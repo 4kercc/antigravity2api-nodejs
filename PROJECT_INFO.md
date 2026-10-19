@@ -247,6 +247,25 @@ antigravity2api/
   - `POST /v1/chat/completions` 指定 `gemini-4-argon-high` → `HTTP 200`，内容 `"正常"`。
 - **注意**：Gemini 4 Argon 使用**独立的周额度桶**（`resetTime` 为一周后），与 3.8 Flash 的额度分开计算；`modelMapping` 对未知模型名原样透传，因此无需额外映射即可使用。
 
+### 18. 未订阅模型的 disabled 占位条目污染整组额度（Gemini 4 上线后的回归）
+- **现象**：Gemini 4 目录放开后，12 个账号里只有 1 个（有 Pro 权限的 `4kercc@gmail.com`）被判定为可用，**其余 11 个账号连普通的 `gemini-3.8-flash` 都不再被选中**，所有 Gemini 流量压到单账号上。
+- **根因**：没有 Gemini 4 权限的账号，上游返回的不是「没有这个模型」，而是一个占位条目：
+  ```json
+  "gemini-4-argon-disabled": { "displayName": "Gemini 4 Argon", "disabled": true, "tagTitle": "Unavailable",
+                               "quotaInfo": { "remainingFraction": null } }
+  ```
+  `quota_manager` 把它写入 `models` 后，组额度按 `r || 0` 计算 → 该条目的 `r=null` 被当成 **0**，整个 `gemini` 组的最小额度变成 0，于是 `hasQuotaForModel()` 对**该组所有模型**都返回 false（阈值 0.20），账号被整体排除。
+- **修复**：
+  - `getModelsWithQuotas()` 保留 `disabled` 标记；
+  - `quotaManager.updateQuota()` 把 disabled 条目从 `models` 移到独立的 `disabledModels` 列表（不参与组额度、不出现在后台额度列表里）；
+  - `hasQuotaForModel()`：命中 disabled 模型族（`gemini-4-argon-disabled` → `gemini-4-argon-high/medium/low`）时只判定**该族**不可用，同组其他模型不受影响；同时 `r=null` 的条目不参与组最小值计算（该兜底也能直接修复修复前写入的旧缓存）；
+  - `getModelGroupQuota()` 同样跳过无额度信息的条目。
+- **验证**：
+  - 单元测试 `node scripts/test-quota-disabled-model.mjs`：13 条用例全部通过（含旧缓存兼容、阈值行为不变）；
+  - 线上实测（修复后）：`gemini-3.8-flash` / `gemini-3.8-flash-tiered` / `gemini-3.5-flash` 可用账号数恢复为 **12**；`gemini-4-argon-high` 可用账号数为 **1**（仅 `4kercc@gmail.com`），即「指定 Gemini 4 时只挑有权限的账号」；
+  - 样本账号 `disabledModels = ["gemini-4-argon-disabled"]`，`models` 中已无 disabled 条目。
+- **结论（回答「指定 gemini4 会不会自动只挑有权限的账号」）**：**会**，但依赖额度缓存中的 `disabledModels` 信息；额度同步（10 分钟一轮）刷新后生效。账号选择仍然只看「模型组额度 + 冷却」，**不做逐模型的精确可用性匹配**——若某账号有 `-high` 但没有 `-medium`（目前线上未出现），请求仍可能落到它上面并返回 404，因为 404 不在自动换号重试范围内（仅 429/503 会换号）。
+
 ---
 
 ## 🔧 四、 运维与常用命令
