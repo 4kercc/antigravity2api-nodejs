@@ -289,7 +289,9 @@ const DEFAULT_API_CONFIGS = {
 const DEFAULT_UPSTREAM_CANDIDATES = ['production', 'daily', 'sandbox'];
 
 // 默认 IDE 版本号（config.json 中无版本记录时使用）
-const DEFAULT_IDE_VERSION = '2.5.5';
+const DEFAULT_IDE_VERSION = '2.24.0';
+/** 能拿到完整模型目录（含 Gemini 4 Argon）的最低客户端版本 */
+const MIN_MODEL_CATALOG_VERSION = '2.24.0';
 
 const DEFAULT_API_UNLEASH = {
     register: "https://antigravity-unleash.goog/api/client/register",
@@ -322,6 +324,11 @@ function getActiveApiConfig(jsonConfig, upstreamCfg) {
   const hardcodedEndpoint = DEFAULT_API_CONFIGS[apiUse] || DEFAULT_API_CONFIGS.production;
   const unleash = upstreamCfg.api?.unleash || DEFAULT_API_UNLEASH;
   const ideVersion = jsonConfig.api?.version || DEFAULT_IDE_VERSION;
+  // 模型目录按客户端版本放量：低于 2.24.0 的 UA 只能拿到基础模型（没有 Gemini 4 Argon），
+  // 因此这里做下限兜底，避免旧 config.json 静默少一批模型。
+  const effectiveIdeVersion = compareVersions(ideVersion, MIN_MODEL_CATALOG_VERSION) < 0
+    ? MIN_MODEL_CATALOG_VERSION
+    : ideVersion;
 
   // 构建 upstream fallback candidates：用户选的排第一，其余按默认顺序补齐（去重）
   const defaultCandidateNames = upstreamCfg.upstreamCandidates || DEFAULT_UPSTREAM_CANDIDATES;
@@ -341,8 +348,11 @@ function getActiveApiConfig(jsonConfig, upstreamCfg) {
     recordTrajectory: upstreamEndpoint.recordTrajectory || hardcodedEndpoint.recordTrajectory,
     recordCodeAssistMetrics: upstreamEndpoint.recordCodeAssistMetrics || hardcodedEndpoint.recordCodeAssistMetrics,
     host: upstreamEndpoint.host || hardcodedEndpoint.host,
-    userAgent: `antigravity/${ideVersion} windows/amd64`,
-    ideVersion,
+    // 必须与官方 Antigravity 客户端（language_server）的 User-Agent 格式一致，
+    // 否则上游只返回基础模型目录：实测 `antigravity/hub/<ver> (...)` 才能拿到
+    // Gemini 4 Argon 等新模型（`antigravity/<ver> windows/amd64` 会被判定为旧客户端）。
+    userAgent: `antigravity/hub/${effectiveIdeVersion} (aidev_client; os_type=windows; arch=amd64)`,
+    ideVersion: effectiveIdeVersion,
     unleash,
     upstreamCandidates,
   };
@@ -596,9 +606,12 @@ export async function checkAndUpdateVersion() {
       // 更新 config.json
       saveConfigJson({ api: { version: latestVersion } });
 
-      // 更新内存中的配置
-      config.api.ideVersion = latestVersion;
-      config.api.userAgent = `antigravity/${latestVersion} windows/amd64`;
+      // 更新内存中的配置（User-Agent 格式必须与官方客户端一致，见 buildApiConfig 注释）
+      const nextIdeVersion = compareVersions(latestVersion, MIN_MODEL_CATALOG_VERSION) < 0
+        ? MIN_MODEL_CATALOG_VERSION
+        : latestVersion;
+      config.api.ideVersion = nextIdeVersion;
+      config.api.userAgent = `antigravity/hub/${nextIdeVersion} (aidev_client; os_type=windows; arch=amd64)`;
 
       log.info(`✓ 版本已更新为 ${latestVersion}`);
     } else {
