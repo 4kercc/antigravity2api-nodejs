@@ -223,6 +223,30 @@ antigravity2api/
   - 线上复现验证：在服务器上把某个账号的 `timestamp` 人为改成 2 小时前（`isExpired: true`，与故障时状态一致），调用 `getModelsWithQuotas()` → **查询成功（返回 33 个模型），令牌被刷新为剩余 60 分钟**；修复前该状态必然返回 401；
   - 部署后首轮同步：`[QuotaSync] 额度自动同步完成: 成功 12 个`（此前为 `成功 0 个, 失败 12 个`）；`data/accounts.json` 中 12 个账号剩余有效期均为 59～60 分钟、无过期账号。
 
+### 17. Gemini 4 Argon 模型目录放量（User-Agent 是唯一门槛）
+- **需求背景**：官方 IDE 的模型选择器里出现了 `Gemini 4 Argon High / Medium / Low`（标记 New），但通过本项目调用 `fetchAvailableModels` 始终只返回 22～35 个模型、没有 Gemini 4。
+- **排查方法**：从本机官方 IDE 的 `main.log` 拿到 `language_server.exe` 的启动参数，确认它调用的是 `daily-cloudcode-pa.googleapis.com`、客户端版本 2.24.0；随后用临时本地 TLS 中间人代理（仅解密 cloudcode-pa 两个域名，其余流量原样隧道；CA 只装进当前用户证书区，抓完即删）抓到了真实请求。
+- **根因**：模型目录按 **User-Agent 格式** 放量，与账号、请求体、端点无关。
+  | User-Agent | 模型数 | Gemini 4 |
+  | --- | --- | --- |
+  | `antigravity/2.24.0 windows/amd64`（旧格式） | 26 | 无 |
+  | `antigravity/hub/2.24.0 (aidev_client; os_type=windows; arch=amd64)`（官方真实格式） | **29** | **有** |
+  | `antigravity/hub/2.5.5 (...)` | 23 | 无（版本过低） |
+  官方请求体 `{"project":"aicode-consumers"}` 不影响结果；`/hub` 段与版本号才是关键。上游 NUX 文案也确认：「Gemini 4 Argon is now available to paid Pro plan subscribers…separate weekly-only Argon quota」。
+- **模型信息（实测返回）**：
+  | 模型 ID | 上游占位名 | 显示名 | maxTokens / maxOutput | 思考 |
+  | --- | --- | --- | --- | --- |
+  | `gemini-4-argon-high` | `MODEL_PLACEHOLDER_M417` | Gemini 4 Argon (High) | 1048576 / 65536 | `thinkingBudget: -1`（动态） |
+  | `gemini-4-argon-medium` | `MODEL_PLACEHOLDER_M418` | Gemini 4 Argon (Medium) | 同上 | 同上 |
+  | `gemini-4-argon-low` | `MODEL_PLACEHOLDER_M419` | Gemini 4 Argon (Low) | 同上 | 同上 |
+  三者均 `supportsImages / supportsThinking / supportsVideo`，`tagTitle: New`。
+- **修复**：`src/config/config.js` 的 `userAgent` 改为官方格式 `antigravity/hub/<ver> (aidev_client; os_type=windows; arch=amd64)`；`DEFAULT_IDE_VERSION` 升到 `2.24.0` 并增加 `MIN_MODEL_CATALOG_VERSION = '2.24.0'` 下限兜底（旧 `config.json` 里写 2.5.5 也不会静默丢模型）；版本自动更新路径同步该格式与下限。
+- **验证**：
+  - 三个档位直接调用上游均返回 `"正常"`（273 prompt / 5 completion token）；
+  - 部署后 `GET /v1/models` 返回 54 个模型，其中含 `gemini-4-argon-high/medium/low`；
+  - `POST /v1/chat/completions` 指定 `gemini-4-argon-high` → `HTTP 200`，内容 `"正常"`。
+- **注意**：Gemini 4 Argon 使用**独立的周额度桶**（`resetTime` 为一周后），与 3.8 Flash 的额度分开计算；`modelMapping` 对未知模型名原样透传，因此无需额外映射即可使用。
+
 ---
 
 ## 🔧 四、 运维与常用命令
