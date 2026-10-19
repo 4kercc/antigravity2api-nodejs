@@ -296,6 +296,21 @@ antigravity2api/
   - `GET /v1/models` 与 `GET /v1beta/models` 均只返回白名单内的 **14** 个模型。
 - **注意**：实际分发节奏仍由 `rotation.strategy` 决定。当前服务器为 `quota_exhausted`（把一个账号用到额度耗尽再换），若希望每个请求都轮换，可在后台把策略改为 `round_robin`；候选账号池本身已按上面的规则精确收敛。
 
+### 21. Gemini 4 工具 schema 校验失败（`$type == Type.ARRAY`）
+- **现象**：Gemini 4 请求返回
+  ```
+  400 INVALID_ARGUMENT:
+  GenerateContentRequest.tools[0].function_declarations[60].parameters.properties[servers].items:
+  field predicate failed: $type == Type.ARRAY
+  ```
+  同一套工具定义在 Gemini 3.8 上可用，切换到 Gemini 4 后失败——**不是账号/额度问题，是工具 schema 不规范**。
+- **根因**：客户端工具定义里存在 `servers: { items: { type: 'string' } }` 这种「有 `items` 但没有 `type`」的写法。JSON Schema 允许省略（由结构推断），但 Gemini 4 的 proto 校验要求 `items` 必须与 `type == ARRAY` 配套，否则直接拒绝；3.8 对此较宽松。
+- **修复**（`src/utils/utils.js` `cleanParameters`）：清洗后若节点缺少 `type`，按结构补全：
+  - 有 `items` → `ARRAY`；有 `properties` → `OBJECT`；
+  - 有 `enum` → 按首个枚举值的类型补 `STRING` / `NUMBER` / `BOOLEAN`；
+  - JSON Schema 元组写法（`items` 为数组）Gemini 不支持，取第一项作为元素 schema。
+- **验证**：本地 8 条 schema 断言全部通过；线上用同样「有 items 无 type」的工具定义请求 `gemini-4-argon-high`，由 400 恢复为 `HTTP 200`（内容 `"正常"`）。
+
 ---
 
 ## 🔧 四、 运维与常用命令
