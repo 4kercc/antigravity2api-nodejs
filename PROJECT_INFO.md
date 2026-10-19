@@ -266,6 +266,17 @@ antigravity2api/
   - 样本账号 `disabledModels = ["gemini-4-argon-disabled"]`，`models` 中已无 disabled 条目。
 - **结论（回答「指定 gemini4 会不会自动只挑有权限的账号」）**：**会**，但依赖额度缓存中的 `disabledModels` 信息；额度同步（10 分钟一轮）刷新后生效。账号选择仍然只看「模型组额度 + 冷却」，**不做逐模型的精确可用性匹配**——若某账号有 `-high` 但没有 `-medium`（目前线上未出现），请求仍可能落到它上面并返回 404，因为 404 不在自动换号重试范围内（仅 429/503 会换号）。
 
+### 19. 模型目录升级后 Gemini 3.8/3.7 映射失效（404 Requested entity was not found）
+- **现象**：User-Agent 升级到 2.24.0 后，请求 `gemini-3.8-flash` 返回 `404 Requested entity was not found`；而 `gemini-4-argon-*` 正常。
+- **根因**：新版客户端的模型目录用 `gemini-3.8-flash-tiered` 取代了旧的 `gemini-3.7-flash-tiered`，而 `modelMapping()` 里是「所有 `gemini-3.8-flash*` / `gemini-3.7-flash*` 一律折叠成 `gemini-3.7-flash-tiered`」，目标模型已不存在 → 全部 404。
+- **修复**（`src/utils/utils.js` `modelMapping`）：
+  - 泛名 `gemini-3.8-flash` / `-thinking` / `-cyber` → `gemini-3.8-flash-tiered`；
+  - 显式档位 `gemini-3.8-flash-high/medium/low/tiered` **原样保留**（目录中真实存在）；
+  - 泛名 `gemini-3.7-flash` / `-thinking` / `-lite` / `-tiered` → `gemini-3.7-flash-medium`（3.7 无 tiered 版本）；
+  - `gemini-3.8-pro` / `gemini-3.7-pro` → `gemini-3.1-pro-low`（目录 `tieredModelIds.pro` 指定的 pro 模型），`gemini-3.8-pro-high` → `gemini-3.1-pro-high`。
+- **验证**：本地 20 条映射断言全部通过；线上 `gemini-3.8-flash` 由 404 恢复为 `HTTP 200 "正常"`。
+- **备注**：Claude 的日期型映射（如 `claude-sonnet-4-5`）未改动——新版目录按账号档位提供 `claude-sonnet-4-6` 或 `claude-sonnet-5-5-*`，没有统一目标，需按账号实际目录再定。
+
 ---
 
 ## 🔧 四、 运维与常用命令
