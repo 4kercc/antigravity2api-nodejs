@@ -129,6 +129,25 @@ export function cleanParameters(obj) {
       cleaned[key] = value;
     }
   }
+
+  // Gemini 要求 items / properties 必须与 type 配套：
+  // 缺少 type 时会报 "field predicate failed: $type == Type.ARRAY"
+  // （Gemini 4 的 schema 校验比 3.8 更严格，客户端工具定义里常见 servers: { items: ... } 这种写法）。
+  // 这里按结构补全 type，并处理 JSON Schema 的元组写法（items 为数组时 Gemini 不支持，取第一项）。
+  if (Array.isArray(cleaned.items)) {
+    cleaned.items = cleaned.items.length > 0 ? cleaned.items[0] : { type: 'STRING' };
+  }
+  if (!cleaned.type) {
+    if (cleaned.items !== undefined) {
+      cleaned.type = 'ARRAY';
+    } else if (cleaned.properties !== undefined) {
+      cleaned.type = 'OBJECT';
+    } else if (Array.isArray(cleaned.enum) && cleaned.enum.length > 0) {
+      const first = cleaned.enum[0];
+      cleaned.type = typeof first === 'number' ? 'NUMBER' : (typeof first === 'boolean' ? 'BOOLEAN' : 'STRING');
+    }
+  }
+
   return cleaned;
 }
 
